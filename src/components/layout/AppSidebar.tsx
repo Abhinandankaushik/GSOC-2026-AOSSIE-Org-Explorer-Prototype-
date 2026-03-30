@@ -28,6 +28,7 @@ export default function AppSidebar({ isOpen }: AppSidebarProps) {
   const location = useLocation();
   const org = useAppStore(s => s.org);
   const mode = useAppStore(s => s.mode);
+  const rateLimit = useAppStore(s => s.rateLimit);
   
   const navItems = mode === 'multi' ? multiOrgNavItems : baseNavItems;
 
@@ -116,9 +117,9 @@ export default function AppSidebar({ isOpen }: AppSidebarProps) {
         <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
           <Zap className="w-3.5 h-3.5 text-primary" />
           <span className="font-semibold text-foreground">
-            {useAppStore.getState().rateLimit.remaining}
+            {rateLimit.remaining}
           </span>
-          <span className="text-muted-foreground">/ {useAppStore.getState().rateLimit.limit}</span>
+          <span className="text-muted-foreground">/ {rateLimit.limit}</span>
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5">API Rate Limit</p>
       </motion.div>

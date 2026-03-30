@@ -440,7 +440,11 @@ export default function NetworkPage() {
         transition={{ delay: 0.1 }}
         ref={containerRef}
         className="bg-surface-card border border-border rounded-xl overflow-hidden relative"
-        style={{ height: '70vh', cursor: dragRef.current.nodeId ? 'grabbing' : dragRef.current.isPan ? 'move' : 'default' }}
+        style={{
+          height: 'calc(100vh - 220px)',
+          minHeight: '420px',
+          cursor: dragRef.current.nodeId ? 'grabbing' : dragRef.current.isPan ? 'move' : 'default',
+        }}
       >
         <canvas
           ref={canvasRef}

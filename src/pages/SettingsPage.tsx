@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAppStore } from '@/store/app-store';
 import { useNavigate } from 'react-router-dom';
+import { OrgManager } from '@/components/OrgManager';
 
 export default function SettingsPage() {
   const { pat, setPat, orgName, clearData, rateLimit } = useAppStore();
@@ -127,6 +128,9 @@ export default function SettingsPage() {
         <h3 className="text-sm font-medium text-foreground">Current Organization</h3>
         <p className="text-sm font-mono text-primary">{orgName || 'None'}</p>
       </div>
+
+      {/* Org Manager */}
+      <OrgManager />
 
       {/* Sign Out */}
       <Button variant="destructive" onClick={handleSignOut} className="gap-2">

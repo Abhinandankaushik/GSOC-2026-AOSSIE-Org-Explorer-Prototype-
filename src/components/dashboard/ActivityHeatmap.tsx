@@ -1,14 +1,13 @@
 import { useState, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { GHEvent, GHRepo } from '@/lib/github-client';
 import { useAppStore } from '@/store/app-store';
 
 const CELL_SIZE = 14;
 const GAP = 3;
-const WEEKS = 52;
 const DAYS = 7;
 const HEADER_HEIGHT = 20;
 const DAY_LABEL_WIDTH = 28;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const COLORS = [
   'hsl(235, 15%, 12%)',
@@ -18,7 +17,7 @@ const COLORS = [
   'hsl(263, 70%, 66%)',
 ];
 
-const DAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 interface CellData {
@@ -52,19 +51,20 @@ export default function ActivityHeatmap({ repos }: Props) {
     return Array.from(years).sort((a, b) => b - a);
   }, [repos, events, currentYear]);
 
-  const { grid, monthLabels } = useMemo(() => {
-    const isCurrentYear = selectedYear === currentYear;
-    const endDate = isCurrentYear ? new Date() : new Date(selectedYear, 11, 31);
-    const startDate = new Date(endDate);
-    startDate.setDate(startDate.getDate() - (WEEKS * 7 - 1));
+  const { grid, monthLabels, weeks } = useMemo(() => {
+    const startDate = new Date(selectedYear, 0, 1);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(selectedYear, 11, 31);
+    endDate.setHours(0, 0, 0, 0);
+
+    const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / DAY_MS) + 1;
+    const weeks = Math.max(1, Math.ceil(totalDays / 7));
 
     const grid = new Map<string, CellData>();
 
-    for (let week = 0; week < WEEKS; week++) {
+    for (let week = 0; week < weeks; week++) {
       for (let day = 0; day < DAYS; day++) {
-        const daysAgo = (WEEKS - 1 - week) * 7 + (6 - day);
-        const date = new Date(endDate);
-        date.setDate(date.getDate() - daysAgo);
+        const date = new Date(startDate.getTime() + (week * 7 + day) * DAY_MS);
         date.setHours(0, 0, 0, 0);
         const key = `${week}-${day}`;
         grid.set(key, { date, count: 0, activities: [] });
@@ -75,16 +75,15 @@ export default function ActivityHeatmap({ repos }: Props) {
     const addActivity = (dateStr: string, activity: string) => {
       const d = new Date(dateStr);
       d.setHours(0, 0, 0, 0);
-      const daysAgo = Math.floor((endDate.getTime() - d.getTime()) / (24 * 60 * 60 * 1000));
-      if (daysAgo < 0 || daysAgo >= WEEKS * 7) return;
-      const week = WEEKS - 1 - Math.floor(daysAgo / 7);
-      const day = 6 - (daysAgo % 7);
-      if (week >= 0 && week < WEEKS && day >= 0 && day < DAYS) {
-        const cell = grid.get(`${week}-${day}`);
-        if (cell) {
-          cell.count++;
-          cell.activities.push(activity);
-        }
+      if (d.getFullYear() !== selectedYear) return;
+      if (d < startDate || d > endDate) return;
+      const daysFromStart = Math.floor((d.getTime() - startDate.getTime()) / DAY_MS);
+      const week = Math.floor(daysFromStart / 7);
+      const day = (d.getDay() + 6) % 7; // Monday-first layout
+      const cell = grid.get(`${week}-${day}`);
+      if (cell) {
+        cell.count++;
+        cell.activities.push(activity);
       }
     };
 
@@ -111,7 +110,7 @@ export default function ActivityHeatmap({ repos }: Props) {
     // Month labels
     const monthLabels: { label: string; x: number }[] = [];
     let lastMonth = -1;
-    for (let week = 0; week < WEEKS; week++) {
+    for (let week = 0; week < weeks; week++) {
       const cell = grid.get(`${week}-0`);
       if (cell) {
         const month = cell.date.getMonth();
@@ -122,7 +121,7 @@ export default function ActivityHeatmap({ repos }: Props) {
       }
     }
 
-    return { grid, monthLabels };
+    return { grid, monthLabels, weeks };
   }, [repos, events, selectedYear, currentYear]);
 
   const maxVal = Math.max(1, ...Array.from(grid.values()).map(c => c.count));
@@ -135,46 +134,23 @@ export default function ActivityHeatmap({ repos }: Props) {
     setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top, cell });
   };
 
-  const canGoBack = availableYears.includes(selectedYear - 1) || selectedYear > Math.min(...availableYears);
-  const canGoForward = selectedYear < currentYear;
-
   return (
     <div ref={containerRef} className="overflow-x-auto pb-2 relative">
       {/* Year Selector */}
-      <div className="flex items-center gap-3 mb-4">
-        <button
-          onClick={() => setSelectedYear(y => y - 1)}
-          disabled={!canGoBack}
-          className="p-1 rounded-md hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground transition-colors"
+      <div className="mb-4">
+        <select
+          value={selectedYear}
+          onChange={e => setSelectedYear(Number(e.target.value))}
+          className="px-3 py-1 rounded-md bg-surface-card border border-border text-sm text-foreground"
         >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-        <div className="flex gap-1">
-          {availableYears.slice(0, 5).map(year => (
-            <button
-              key={year}
-              onClick={() => setSelectedYear(year)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                selectedYear === year
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-              }`}
-            >
-              {year}
-            </button>
+          {availableYears.map(year => (
+            <option key={year} value={year}>{year}</option>
           ))}
-        </div>
-        <button
-          onClick={() => setSelectedYear(y => y + 1)}
-          disabled={!canGoForward}
-          className="p-1 rounded-md hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
+        </select>
       </div>
 
       <svg
-        width={DAY_LABEL_WIDTH + WEEKS * (CELL_SIZE + GAP)}
+        width={DAY_LABEL_WIDTH + weeks * (CELL_SIZE + GAP)}
         height={HEADER_HEIGHT + DAYS * (CELL_SIZE + GAP)}
       >
         {monthLabels.map((m, i) => (
@@ -190,7 +166,7 @@ export default function ActivityHeatmap({ repos }: Props) {
             </text>
           )
         ))}
-        {Array.from({ length: WEEKS }, (_, week) =>
+        {Array.from({ length: weeks }, (_, week) =>
           Array.from({ length: DAYS }, (_, day) => {
             const cell = grid.get(`${week}-${day}`);
             if (!cell) return null;

@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import AppLayout from "./components/layout/AppLayout";
 import DashboardPage from "./pages/DashboardPage";
+import ComparisonPage from "./pages/ComparisonPage";
 import RepositoriesPage from "./pages/RepositoriesPage";
 import RepoDetailPage from "./pages/RepoDetailPage";
 import ContributorsPage from "./pages/ContributorsPage";
@@ -26,6 +27,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/comparison" element={<ComparisonPage />} />
             <Route path="/repositories" element={<RepositoriesPage />} />
             <Route path="/repo/:repoName" element={<RepoDetailPage />} />
             <Route path="/contributors" element={<ContributorsPage />} />

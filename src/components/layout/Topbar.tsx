@@ -3,6 +3,7 @@ import { useAppStore } from '@/store/app-store';
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
 
 interface TopbarProps {
   isSidebarOpen: boolean;
@@ -10,6 +11,7 @@ interface TopbarProps {
 }
 
 export default function Topbar({ isSidebarOpen, onToggleSidebar }: TopbarProps) {
+  const navigate = useNavigate();
   const { org, syncData, isLoading, rateLimit } = useAppStore();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncing, setSyncing] = useState(false);
@@ -41,7 +43,12 @@ export default function Topbar({ isSidebarOpen, onToggleSidebar }: TopbarProps) 
           {isSidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
         </Button>
         {org && (
-          <motion.div className="flex items-center gap-3">
+          <motion.button 
+            className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity bg-transparent border-none p-0"
+            onClick={() => navigate('/dashboard')}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
             <motion.img 
               src={org.avatar_url} 
               alt={org.login} 
@@ -49,7 +56,7 @@ export default function Topbar({ isSidebarOpen, onToggleSidebar }: TopbarProps) 
               whileHover={{ scale: 1.1 }}
             />
             <span className="text-sm font-semibold text-foreground gradient-text">{org.name || org.login}</span>
-          </motion.div>
+          </motion.button>
         )}
       </div>
 

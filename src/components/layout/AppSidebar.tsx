@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   LayoutDashboard, GitFork, Users, BarChart3, Network, Settings, Search, Zap, GitCompare
@@ -24,6 +24,7 @@ interface AppSidebarProps {
 }
 
 export default function AppSidebar({ isOpen }: AppSidebarProps) {
+  const navigate = useNavigate();
   const location = useLocation();
   const org = useAppStore(s => s.org);
   const mode = useAppStore(s => s.mode);
@@ -43,7 +44,12 @@ export default function AppSidebar({ isOpen }: AppSidebarProps) {
         animate={{ opacity: 1 }}
         className="p-5 border-b border-border/50"
       >
-        <motion.div className="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-default">
+        <motion.button 
+          onClick={() => navigate('/dashboard')}
+          className="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-pointer w-full bg-transparent border-none p-0"
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
           <motion.div 
             whileHover={{ rotate: 360 }}
             transition={{ duration: 0.6 }}
@@ -51,13 +57,13 @@ export default function AppSidebar({ isOpen }: AppSidebarProps) {
           >
             <Search className="w-4 h-4 text-primary-foreground" />
           </motion.div>
-          <div>
+          <div className="text-left">
             <h1 className="text-sm font-bold bg-gradient-to-r from-primary to-info bg-clip-text text-transparent">Org Explorer</h1>
             <p className="text-[10px] text-muted-foreground font-mono">
               {org?.login || 'GitHub'}
             </p>
           </div>
-        </motion.div>
+        </motion.button>
       </motion.div>
 
       {/* Nav */}

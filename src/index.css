@@ -1,8 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 
 @layer base {
   :root {
@@ -140,4 +142,26 @@
   .glow-primary {
     box-shadow: var(--shadow-glow);
   }
+
+  /* Fix hover tooltip/popover text visibility */
+  [class*="hover:bg-"] {
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+}
+
+/* Fix recharts tooltip text visibility */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  color: hsl(220, 20%, 92%) !important;
+}
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-label {
+  color: hsl(220, 20%, 92%) !important;
+}
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-item {
+  color: hsl(220, 20%, 85%) !important;
+}
+
+/* Recharts pie label visibility */
+.recharts-pie-label-text {
+  fill: hsl(220, 20%, 85%) !important;
+  font-size: 10px !important;
 }

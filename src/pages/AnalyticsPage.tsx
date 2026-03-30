@@ -174,42 +174,6 @@ export default function AnalyticsPage() {
       }));
   }, [events, repos]);
 
-  const issueResolutionSeries = useMemo(() => {
-    const monthMap = new Map<string, { opened: number; closed: number }>();
-    events.forEach(e => {
-      if (e.type !== 'IssuesEvent') return;
-      const action = (e.payload as Record<string, unknown>)?.action as string | undefined;
-      const d = new Date(e.created_at);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const entry = monthMap.get(key) || { opened: 0, closed: 0 };
-      if (action === 'opened') entry.opened++;
-      if (action === 'closed') entry.closed++;
-      monthMap.set(key, entry);
-    });
-    return Array.from(monthMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-12)
-      .map(([month, data]) => ({ month, ...data }));
-  }, [events]);
-
-  const prResolutionSeries = useMemo(() => {
-    const monthMap = new Map<string, { opened: number; merged: number; closed: number }>();
-    events.forEach(e => {
-      if (e.type !== 'PullRequestEvent') return;
-      const action = (e.payload as Record<string, unknown>)?.action as string | undefined;
-      const d = new Date(e.created_at);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const entry = monthMap.get(key) || { opened: 0, merged: 0, closed: 0 };
-      if (action === 'opened') entry.opened++;
-      if (action === 'closed') {
-        const pr = (e.payload as Record<string, unknown>)?.pull_request as { merged?: boolean } | undefined;
-        if (pr?.merged) entry.merged++;
-        else entry.closed++;
-      }
-      monthMap.set(key, entry);
-    });
-    return Array.from(monthMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-12)
-      .map(([month, data]) => ({ month, ...data }));
-  }, [events]);
-
   // Event breakdown
   const eventTypeData = useMemo(() => {
     const typeMap = new Map<string, number>();
@@ -386,40 +350,6 @@ export default function AnalyticsPage() {
           </ResponsiveContainer>
         </ChartSection>
       )}
-
-      {/* Issue / PR resolution */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {issueResolutionSeries.length > 0 && (
-          <ChartSection title="Issues Opened vs Closed" icon={AlertCircle}>
-            <ResponsiveContainer width="100%" height={230}>
-              <BarChart data={issueResolutionSeries}>
-                <XAxis dataKey="month" tick={{ fill: 'hsl(220, 10%, 55%)', fontSize: 10 }} axisLine={false} />
-                <YAxis tick={{ fill: 'hsl(220, 10%, 55%)', fontSize: 10 }} axisLine={false} />
-                <Tooltip {...chartTooltipStyle} />
-                <Legend wrapperStyle={{ fontSize: 10, color: 'hsl(220, 10%, 55%)' }} />
-                <Bar dataKey="opened" name="Opened" stackId="issues" fill="hsl(38, 92%, 50%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="closed" name="Closed" stackId="issues" fill="hsl(142, 71%, 45%)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartSection>
-        )}
-
-        {prResolutionSeries.length > 0 && (
-          <ChartSection title="PRs Opened vs Merged" icon={GitPullRequest}>
-            <ResponsiveContainer width="100%" height={230}>
-              <BarChart data={prResolutionSeries}>
-                <XAxis dataKey="month" tick={{ fill: 'hsl(220, 10%, 55%)', fontSize: 10 }} axisLine={false} />
-                <YAxis tick={{ fill: 'hsl(220, 10%, 55%)', fontSize: 10 }} axisLine={false} />
-                <Tooltip {...chartTooltipStyle} />
-                <Legend wrapperStyle={{ fontSize: 10, color: 'hsl(220, 10%, 55%)' }} />
-                <Bar dataKey="opened" name="Opened" stackId="prs" fill="hsl(217, 91%, 60%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="merged" name="Merged" stackId="prs" fill="hsl(142, 71%, 45%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="closed" name="Closed" stackId="prs" fill="hsl(340, 82%, 52%)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartSection>
-        )}
-      </div>
 
       {/* ===== SECTION 9: ALERTS ===== */}
       {alerts.length > 0 && (

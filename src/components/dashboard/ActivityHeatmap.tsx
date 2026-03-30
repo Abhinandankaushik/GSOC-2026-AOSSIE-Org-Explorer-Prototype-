@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import type { GHRepo, GHEvent } from '@/lib/github-client';
+import type { GHEvent, GHRepo } from '@/lib/github-client';
 import { useAppStore } from '@/store/app-store';
 
 const CELL_SIZE = 14;
@@ -21,41 +21,43 @@ const COLORS = [
 const DAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-interface Props {
-  repos: GHRepo[];
-  events?: GHEvent[];
-}
-
 interface CellData {
   date: Date;
   count: number;
-  events: string[];
   activities: string[];
 }
 
-export default function ActivityHeatmap({ repos, events: externalEvents }: Props) {
-  const storeEvents = useAppStore(s => s.events);
-  const events = externalEvents ?? storeEvents;
+interface Props {
+  repos: GHRepo[];
+}
+
+export default function ActivityHeatmap({ repos }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; cell: CellData } | null>(null);
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
+  const events = useAppStore(s => s.events);
 
-  // Available years from repo data
   const availableYears = useMemo(() => {
     const years = new Set<number>();
+    years.add(currentYear);
+    years.add(currentYear - 1);
+    years.add(currentYear - 2);
     repos.forEach(r => {
-      [r.pushed_at, r.created_at, r.updated_at].forEach(d => years.add(new Date(d).getFullYear()));
+      [r.pushed_at, r.created_at, r.updated_at].forEach(d => {
+        years.add(new Date(d).getFullYear());
+      });
     });
     events.forEach(e => years.add(new Date(e.created_at).getFullYear()));
-    const sorted = Array.from(years).sort((a, b) => b - a);
-    if (sorted.length === 0) sorted.push(currentYear);
-    return sorted;
+    return Array.from(years).sort((a, b) => b - a);
   }, [repos, events, currentYear]);
 
   const { grid, monthLabels } = useMemo(() => {
     const isCurrentYear = selectedYear === currentYear;
     const endDate = isCurrentYear ? new Date() : new Date(selectedYear, 11, 31);
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - (WEEKS * 7 - 1));
+
     const grid = new Map<string, CellData>();
 
     for (let week = 0; week < WEEKS; week++) {
@@ -64,47 +66,49 @@ export default function ActivityHeatmap({ repos, events: externalEvents }: Props
         const date = new Date(endDate);
         date.setDate(date.getDate() - daysAgo);
         date.setHours(0, 0, 0, 0);
-        if (date.getFullYear() !== selectedYear && !isCurrentYear) continue;
         const key = `${week}-${day}`;
-        grid.set(key, { date, count: 0, events: [], activities: [] });
+        grid.set(key, { date, count: 0, activities: [] });
       }
     }
 
-    const bumpCell = (dateStr: string, label: string, repoName?: string) => {
+    // Helper to add activity to a date
+    const addActivity = (dateStr: string, activity: string) => {
       const d = new Date(dateStr);
+      d.setHours(0, 0, 0, 0);
       const daysAgo = Math.floor((endDate.getTime() - d.getTime()) / (24 * 60 * 60 * 1000));
-      if (daysAgo >= 0 && daysAgo < 365) {
-        const week = WEEKS - 1 - Math.floor(daysAgo / 7);
-        const day = 6 - (daysAgo % 7);
-        if (week >= 0 && week < WEEKS && day >= 0 && day < DAYS) {
-          const key = `${week}-${day}`;
-          const cell = grid.get(key);
-          if (cell) {
-            cell.count++;
-            if (repoName && !cell.events.includes(repoName)) cell.events.push(repoName);
-            cell.activities.push(label);
-          }
+      if (daysAgo < 0 || daysAgo >= WEEKS * 7) return;
+      const week = WEEKS - 1 - Math.floor(daysAgo / 7);
+      const day = 6 - (daysAgo % 7);
+      if (week >= 0 && week < WEEKS && day >= 0 && day < DAYS) {
+        const cell = grid.get(`${week}-${day}`);
+        if (cell) {
+          cell.count++;
+          cell.activities.push(activity);
         }
       }
     };
 
-    repos.forEach(repo => {
-      const dateActions: [string, string, string | undefined][] = [
-        [repo.pushed_at, `Pushed ${repo.name}`, repo.name],
-        [repo.created_at, `Created ${repo.name}`, repo.name],
-        [repo.updated_at, `Updated ${repo.name}`, repo.name],
-      ];
-      dateActions.forEach(([dateStr, activity, repoName]) => bumpCell(dateStr, activity, repoName));
-    });
-
+    // Add events (primary source of real activity)
     events.forEach(event => {
       const repoName = event.repo.name.split('/')[1] || event.repo.name;
-      const type = event.type.replace('Event', '');
-      const action = (event.payload as Record<string, unknown>)?.action as string | undefined;
-      const label = `${type}${action ? ` (${action})` : ''} · ${repoName}`;
-      bumpCell(event.created_at, label, repoName);
+      const eventType = event.type.replace('Event', '');
+      const actor = event.actor.login;
+      addActivity(event.created_at, `${actor} ${eventType} in ${repoName}`);
     });
 
+    // Add repo push/create/update dates
+    repos.forEach(repo => {
+      addActivity(repo.pushed_at, `Push to ${repo.name}`);
+      addActivity(repo.created_at, `Created ${repo.name}`);
+      // Only add updated_at if different day from pushed_at
+      const pushDay = new Date(repo.pushed_at).toDateString();
+      const updateDay = new Date(repo.updated_at).toDateString();
+      if (pushDay !== updateDay) {
+        addActivity(repo.updated_at, `Updated ${repo.name}`);
+      }
+    });
+
+    // Month labels
     const monthLabels: { label: string; x: number }[] = [];
     let lastMonth = -1;
     for (let week = 0; week < WEEKS; week++) {
@@ -212,27 +216,27 @@ export default function ActivityHeatmap({ repos, events: externalEvents }: Props
 
       {tooltip && (
         <div
-          className="absolute pointer-events-none z-50 bg-surface-overlay/95 backdrop-blur-md rounded-lg px-3 py-2 border border-border shadow-xl text-xs"
+          className="absolute pointer-events-none z-50 bg-popover/95 backdrop-blur-md rounded-lg px-3 py-2 border border-border shadow-xl text-xs"
           style={{
             left: Math.min(tooltip.x + 12, (containerRef.current?.clientWidth || 600) - 220),
             top: tooltip.y - 80,
           }}
         >
-          <p className="font-medium text-foreground">
+          <p className="font-medium text-popover-foreground">
             {tooltip.cell.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
           </p>
           <p className="text-muted-foreground mt-0.5">
             {tooltip.cell.count === 0 ? 'No activity' : `${tooltip.cell.count} activit${tooltip.cell.count > 1 ? 'ies' : 'y'}`}
           </p>
           {tooltip.cell.activities.length > 0 && (
-            <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground/80 max-h-[100px] overflow-y-auto">
-              {tooltip.cell.activities.slice(0, 5).map((act, i) => (
+            <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground/80 max-h-[120px] overflow-y-auto">
+              {tooltip.cell.activities.slice(0, 8).map((act, i) => (
                 <div key={i} className="flex items-center gap-1">
                   <span className="text-primary">•</span> {act}
                 </div>
               ))}
-              {tooltip.cell.activities.length > 5 && (
-                <div className="text-primary/70">+{tooltip.cell.activities.length - 5} more</div>
+              {tooltip.cell.activities.length > 8 && (
+                <div className="text-primary/70">+{tooltip.cell.activities.length - 8} more</div>
               )}
             </div>
           )}

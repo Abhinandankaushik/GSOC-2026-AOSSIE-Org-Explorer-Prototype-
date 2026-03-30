@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Search, Filter, ArrowUpDown, Star, GitFork, AlertCircle, ExternalLink } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, Star, GitFork, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -53,13 +53,16 @@ export default function RepositoriesPage() {
 
   return (
     <div className="space-y-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
         <h2 className="text-lg font-semibold text-foreground">Repositories</h2>
         <p className="text-sm text-muted-foreground">{filtered.length} of {repos.length} repositories</p>
       </motion.div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center bg-surface-card border border-border rounded-xl p-3">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+        className="flex flex-wrap gap-3 items-center bg-surface-card border border-border rounded-xl p-3"
+      >
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -87,29 +90,32 @@ export default function RepositoriesPage() {
         >
           {showArchived ? 'Hide' : 'Show'} Archived
         </Button>
-      </div>
+      </motion.div>
 
       {/* Table */}
-      <div className="bg-surface-card border border-border rounded-xl overflow-hidden">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
+        className="bg-surface-card border border-border rounded-xl overflow-hidden"
+      >
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
                 <th className="text-left p-3 font-medium">Health</th>
-                <th className="text-left p-3 font-medium cursor-pointer hover:text-foreground" onClick={() => toggleSort('name')}>
+                <th className="text-left p-3 font-medium cursor-pointer hover:text-foreground transition-colors" onClick={() => toggleSort('name')}>
                   <span className="flex items-center gap-1">Repository <ArrowUpDown className="w-3 h-3" /></span>
                 </th>
                 <th className="text-left p-3 font-medium">Language</th>
-                <th className="text-right p-3 font-medium cursor-pointer hover:text-foreground" onClick={() => toggleSort('stargazers_count')}>
+                <th className="text-right p-3 font-medium cursor-pointer hover:text-foreground transition-colors" onClick={() => toggleSort('stargazers_count')}>
                   <span className="flex items-center gap-1 justify-end"><Star className="w-3 h-3" /> Stars</span>
                 </th>
-                <th className="text-right p-3 font-medium cursor-pointer hover:text-foreground" onClick={() => toggleSort('forks_count')}>
+                <th className="text-right p-3 font-medium cursor-pointer hover:text-foreground transition-colors" onClick={() => toggleSort('forks_count')}>
                   <span className="flex items-center gap-1 justify-end"><GitFork className="w-3 h-3" /> Forks</span>
                 </th>
-                <th className="text-right p-3 font-medium cursor-pointer hover:text-foreground" onClick={() => toggleSort('open_issues_count')}>
+                <th className="text-right p-3 font-medium cursor-pointer hover:text-foreground transition-colors" onClick={() => toggleSort('open_issues_count')}>
                   <span className="flex items-center gap-1 justify-end"><AlertCircle className="w-3 h-3" /> Issues</span>
                 </th>
-                <th className="text-right p-3 font-medium cursor-pointer hover:text-foreground" onClick={() => toggleSort('pushed_at')}>
+                <th className="text-right p-3 font-medium cursor-pointer hover:text-foreground transition-colors" onClick={() => toggleSort('pushed_at')}>
                   <span className="flex items-center gap-1 justify-end">Last Push</span>
                 </th>
               </tr>
@@ -120,10 +126,10 @@ export default function RepositoriesPage() {
                 return (
                   <motion.tr
                     key={repo.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: Math.min(i * 0.02, 0.5) }}
-                    className="border-b border-border/50 hover:bg-surface-overlay transition-colors cursor-pointer"
+                    className="border-b border-border/50 hover:bg-accent/40 transition-colors cursor-pointer group"
                     onClick={() => navigate(`/repo/${repo.name}`)}
                   >
                     <td className="p-3">
@@ -132,7 +138,7 @@ export default function RepositoriesPage() {
                     <td className="p-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">{repo.name}</span>
+                          <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">{repo.name}</span>
                           {repo.archived && <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Archived</span>}
                           {repo.fork && <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info">Fork</span>}
                         </div>
@@ -163,7 +169,7 @@ export default function RepositoriesPage() {
             No repositories match your filters
           </div>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }

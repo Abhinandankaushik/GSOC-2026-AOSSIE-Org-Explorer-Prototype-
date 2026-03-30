@@ -14,10 +14,10 @@ export interface HealthScore {
 }
 
 export function gradeFromScore(score: number): HealthGrade {
-  if (score >= 90) return 'Excellent';
-  if (score >= 70) return 'Good';
-  if (score >= 50) return 'Needs Attention';
-  if (score >= 30) return 'At Risk';
+  if (score >= 85) return 'Excellent';
+  if (score >= 65) return 'Good';
+  if (score >= 45) return 'Needs Attention';
+  if (score >= 25) return 'At Risk';
   return 'Stale';
 }
 
@@ -40,63 +40,111 @@ export function calculateHealthScore(
   const now = Date.now();
   const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
 
-  // Commit Frequency (25 points)
-  const recentCommits = commits.filter(c => new Date(c.commit.committer.date).getTime() > thirtyDaysAgo).length;
-  let commitFrequency = 0;
-  if (recentCommits >= 20) commitFrequency = 25;
-  else if (recentCommits >= 10) commitFrequency = 20;
-  else if (recentCommits >= 5) commitFrequency = 15;
-  else if (recentCommits >= 1) commitFrequency = 10;
-
-  // Issue Resolution (20 points)
-  const closedIssues = issues.filter(i => i.state === 'closed' && i.closed_at);
-  let issueResolution = 0;
-  if (closedIssues.length > 0) {
-    const quickClosed = closedIssues.filter(i => {
-      const created = new Date(i.created_at).getTime();
-      const closed = new Date(i.closed_at!).getTime();
-      return (closed - created) < 7 * 24 * 60 * 60 * 1000;
-    });
-    const ratio = quickClosed.length / closedIssues.length;
-    if (ratio > 0.8) issueResolution = 20;
-    else if (ratio > 0.6) issueResolution = 15;
-    else if (ratio > 0.4) issueResolution = 10;
-    else issueResolution = 5;
-  }
-
-  // PR Velocity (20 points)
-  const mergedPRs = prs.filter(p => p.merged_at);
-  let prVelocity = 0;
-  if (mergedPRs.length > 0) {
-    const avgDays = mergedPRs.reduce((sum, p) => {
-      const created = new Date(p.created_at).getTime();
-      const merged = new Date(p.merged_at!).getTime();
-      return sum + (merged - created) / (24 * 60 * 60 * 1000);
-    }, 0) / mergedPRs.length;
-    if (avgDays < 3) prVelocity = 20;
-    else if (avgDays < 7) prVelocity = 15;
-    else if (avgDays < 14) prVelocity = 10;
-    else prVelocity = 5;
-  }
-
-  // Documentation (15 points)
-  let documentation = 0;
-  if (repo.description) documentation += 5;
-  if (repo.license) documentation += 3;
-  if (repo.topics && repo.topics.length > 0) documentation += 2;
-  if (!repo.archived) documentation += 5; // proxy for README
-
-  // CI/CD (10 points)
-  const cicd = 10; // We assume presence; can be refined
-
-  // Recency (10 points)
+  // ===== Recency (25 points) - Most important differentiator =====
   const daysSincePush = (now - new Date(repo.pushed_at).getTime()) / (24 * 60 * 60 * 1000);
   let recency = 0;
-  if (daysSincePush < 7) recency = 10;
-  else if (daysSincePush < 30) recency = 8;
-  else if (daysSincePush < 90) recency = 5;
+  if (daysSincePush < 3) recency = 25;
+  else if (daysSincePush < 7) recency = 22;
+  else if (daysSincePush < 14) recency = 18;
+  else if (daysSincePush < 30) recency = 14;
+  else if (daysSincePush < 60) recency = 8;
+  else if (daysSincePush < 90) recency = 4;
+  else if (daysSincePush < 180) recency = 2;
 
-  const total = commitFrequency + issueResolution + prVelocity + documentation + cicd + recency;
+  // ===== Community Engagement (20 points) =====
+  let commitFrequency = 0;
+  if (commits.length > 0) {
+    const recentCommits = commits.filter(c => new Date(c.commit.committer.date).getTime() > thirtyDaysAgo).length;
+    if (recentCommits >= 20) commitFrequency = 20;
+    else if (recentCommits >= 10) commitFrequency = 16;
+    else if (recentCommits >= 5) commitFrequency = 12;
+    else if (recentCommits >= 1) commitFrequency = 8;
+  } else {
+    // Estimate from stars, forks, and activity
+    const engagement = repo.stargazers_count + repo.forks_count * 2 + repo.watchers_count;
+    if (engagement >= 100) commitFrequency = 18;
+    else if (engagement >= 50) commitFrequency = 14;
+    else if (engagement >= 20) commitFrequency = 10;
+    else if (engagement >= 5) commitFrequency = 6;
+    else if (engagement >= 1) commitFrequency = 3;
+  }
+
+  // ===== Issue Activity (15 points) =====
+  let issueResolution = 0;
+  if (issues.length > 0) {
+    const closedIssues = issues.filter(i => i.state === 'closed' && i.closed_at);
+    if (closedIssues.length > 0) {
+      const quickClosed = closedIssues.filter(i => {
+        const created = new Date(i.created_at).getTime();
+        const closed = new Date(i.closed_at!).getTime();
+        return (closed - created) < 7 * 24 * 60 * 60 * 1000;
+      });
+      const ratio = quickClosed.length / closedIssues.length;
+      if (ratio > 0.8) issueResolution = 15;
+      else if (ratio > 0.6) issueResolution = 12;
+      else if (ratio > 0.4) issueResolution = 8;
+      else issueResolution = 4;
+    }
+  } else {
+    // Use open_issues_count as proxy - fewer issues relative to activity = healthier
+    if (repo.open_issues_count === 0 && daysSincePush < 90) issueResolution = 12;
+    else if (repo.open_issues_count <= 5) issueResolution = 10;
+    else if (repo.open_issues_count <= 20) issueResolution = 7;
+    else if (repo.open_issues_count <= 50) issueResolution = 4;
+    else issueResolution = 2;
+  }
+
+  // ===== PR Velocity (15 points) =====
+  let prVelocity = 0;
+  if (prs.length > 0) {
+    const mergedPRs = prs.filter(p => p.merged_at);
+    if (mergedPRs.length > 0) {
+      const avgDays = mergedPRs.reduce((sum, p) => {
+        const created = new Date(p.created_at).getTime();
+        const merged = new Date(p.merged_at!).getTime();
+        return sum + (merged - created) / (24 * 60 * 60 * 1000);
+      }, 0) / mergedPRs.length;
+      if (avgDays < 3) prVelocity = 15;
+      else if (avgDays < 7) prVelocity = 12;
+      else if (avgDays < 14) prVelocity = 8;
+      else prVelocity = 4;
+    }
+  } else {
+    // Estimate from forks (more forks = more PR activity likely)
+    if (repo.forks_count >= 50) prVelocity = 13;
+    else if (repo.forks_count >= 20) prVelocity = 10;
+    else if (repo.forks_count >= 5) prVelocity = 7;
+    else if (repo.forks_count >= 1) prVelocity = 4;
+  }
+
+  // ===== Documentation & Setup (15 points) =====
+  let documentation = 0;
+  if (repo.description && repo.description.length > 10) documentation += 4;
+  else if (repo.description) documentation += 2;
+  if (repo.license) documentation += 3;
+  if (repo.topics && repo.topics.length >= 3) documentation += 3;
+  else if (repo.topics && repo.topics.length > 0) documentation += 1;
+  if (repo.has_wiki) documentation += 2;
+  if (!repo.archived) documentation += 2;
+  if (repo.default_branch === 'main' || repo.default_branch === 'master') documentation += 1;
+
+  // ===== Activity Signal (10 points) =====
+  let cicd = 0;
+  // Use updated_at vs pushed_at difference as proxy for CI/automation
+  const updatedDiff = Math.abs(new Date(repo.updated_at).getTime() - new Date(repo.pushed_at).getTime()) / (24 * 60 * 60 * 1000);
+  if (updatedDiff < 1) cicd = 10; // updated same day as push = likely CI
+  else if (updatedDiff < 3) cicd = 8;
+  else if (updatedDiff < 7) cicd = 5;
+  else if (updatedDiff < 30) cicd = 3;
+
+  // Archived penalty
+  if (repo.archived) {
+    recency = 0;
+    commitFrequency = Math.min(commitFrequency, 3);
+    cicd = 0;
+  }
+
+  const total = Math.min(100, commitFrequency + issueResolution + prVelocity + documentation + cicd + recency);
 
   return {
     total,

@@ -9,6 +9,14 @@ import ActivityHeatmap from '@/components/dashboard/ActivityHeatmap';
 import LanguageChart from '@/components/dashboard/LanguageChart';
 import EventFeed from '@/components/dashboard/EventFeed';
 
+const cardVariants = {
+  hidden: { opacity: 0, y: 20, scale: 0.97 },
+  visible: (i: number) => ({
+    opacity: 1, y: 0, scale: 1,
+    transition: { delay: i * 0.08, duration: 0.5, ease: 'easeOut' as const },
+  }),
+};
+
 export default function DashboardPage() {
   const { org, repos, allContributors, isLoading, isSetup, loadOrg } = useAppStore();
   const navigate = useNavigate();
@@ -24,7 +32,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4 }}>
         <h2 className="text-lg font-semibold text-foreground">Dashboard</h2>
         <p className="text-sm text-muted-foreground">Organization health at a glance</p>
       </motion.div>
@@ -45,10 +53,9 @@ export default function DashboardPage() {
 
       {/* Activity Heatmap */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="bg-surface-card border border-border rounded-xl p-5"
+        variants={cardVariants} custom={1} initial="hidden" animate="visible"
+        className="bg-surface-card border border-border rounded-xl p-5 hover:border-primary/20 transition-all duration-300"
+        whileHover={{ scale: 1.002 }}
       >
         <div className="flex items-center gap-2 mb-4">
           <Activity className="w-4 h-4 text-primary" />
@@ -60,20 +67,18 @@ export default function DashboardPage() {
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="bg-surface-card border border-border rounded-xl p-5"
+          variants={cardVariants} custom={2} initial="hidden" animate="visible"
+          className="bg-surface-card border border-border rounded-xl p-5 hover:border-primary/20 transition-all duration-300"
+          whileHover={{ scale: 1.005 }}
         >
           <h3 className="text-sm font-medium text-foreground mb-4">Language Distribution</h3>
           <LanguageChart />
         </motion.div>
 
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="bg-surface-card border border-border rounded-xl p-5"
+          variants={cardVariants} custom={3} initial="hidden" animate="visible"
+          className="bg-surface-card border border-border rounded-xl p-5 hover:border-primary/20 transition-all duration-300"
+          whileHover={{ scale: 1.005 }}
         >
           <h3 className="text-sm font-medium text-foreground mb-4">Recent Activity</h3>
           <EventFeed />

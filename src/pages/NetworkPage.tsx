@@ -1,16 +1,7 @@
-import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Network } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useAppStore } from '@/store/app-store';
-
-const EDGE_COLORS = [
-  'hsl(263, 70%, 66%)',  // purple
-  'hsl(142, 71%, 45%)',  // green
-  'hsl(38, 92%, 50%)',   // amber
-  'hsl(217, 91%, 60%)',  // blue
-  'hsl(340, 82%, 52%)',  // pink
-  'hsl(180, 70%, 50%)',  // cyan
-];
 
 const LANG_COLORS: Record<string, string> = {
   JavaScript: '#f1e05a', TypeScript: '#3178c6', Python: '#3572A5', Java: '#b07219',
@@ -19,454 +10,496 @@ const LANG_COLORS: Record<string, string> = {
   HTML: '#e34c26', CSS: '#563d7c', Dart: '#00B4AB', Swift: '#F05138',
 };
 
-interface NodePos { x: number; y: number }
+const EDGE_COLORS = [
+  '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f472b6', '#22d3ee',
+  '#fb923c', '#a855f7', '#4ade80', '#f87171',
+];
 
-interface RepoNodeData {
-  id: string; name: string; type: 'repo';
-  language: string | null; stars: number; forks: number; issues: number; description: string | null;
-}
-
-interface ContribNodeData {
-  id: string; name: string; type: 'contributor';
-  contributions: number; avatar: string; repoCount: number;
-}
-
-type GraphNode = RepoNodeData | ContribNodeData;
-
-interface Edge {
-  from: string; to: string; weight: number; repoName: string;
-}
+interface Vec2 { x: number; y: number }
+interface RepoNode { id: string; name: string; type: 'repo'; language: string | null; stars: number; forks: number; issues: number; description: string | null; x: number; y: number; vx: number; vy: number }
+interface ContribNode { id: string; name: string; type: 'contributor'; contributions: number; avatar: string; repoCount: number; x: number; y: number; vx: number; vy: number }
+type GraphNode = RepoNode | ContribNode;
+interface Edge { from: string; to: string; weight: number; repoName: string; colorIdx: number }
 
 export default function NetworkPage() {
   const { repos, contributors, allContributors } = useAppStore();
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [dragNode, setDragNode] = useState<string | null>(null);
-  const [nodePositions, setNodePositions] = useState<Map<string, NodePos>>(new Map());
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const animRef = useRef<number>(0);
+  const nodesRef = useRef<Map<string, GraphNode>>(new Map());
+  const edgesRef = useRef<Edge[]>([]);
+
+  // Camera state
+  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
+
+  // Interaction state
+  const dragRef = useRef<{ nodeId: string | null; panStart: Vec2 | null; isPan: boolean }>({ nodeId: null, panStart: null, isPan: false });
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const dragStartRef = useRef<{ offsetX: number; offsetY: number }>({ offsetX: 0, offsetY: 0 });
-  const velocityRef = useRef<Map<string, { vx: number; vy: number }>>(new Map());
-  const positionRef = useRef(nodePositions);
+  const [mouseScreen, setMouseScreen] = useState<Vec2>({ x: 0, y: 0 });
+  const hoveredRef = useRef<GraphNode | null>(null);
 
-  useEffect(() => {
-    positionRef.current = nodePositions;
-  }, [nodePositions]);
+  // Build graph data
+  const { nodeCount, edgeCount } = useMemo(() => {
+    const nodes = new Map<string, GraphNode>();
+    const edges: Edge[] = [];
+    const cx = 600, cy = 400;
 
-  const { repoNodes, contribNodes, edges } = useMemo(() => {
-    const repoNodes: RepoNodeData[] = repos.slice(0, 40).map((r, i) => ({
-      id: `repo-${r.name}`, name: r.name, type: 'repo',
-      language: r.language, stars: r.stargazers_count, forks: r.forks_count,
-      issues: r.open_issues_count, description: r.description,
-      x: 0, y: 0,
-    }));
+    // ALL repos
+    repos.forEach((r, i) => {
+      const angle = (i / Math.max(1, repos.length)) * Math.PI * 2;
+      const radius = 200 + Math.random() * 150;
+      nodes.set(`repo-${r.name}`, {
+        id: `repo-${r.name}`, name: r.name, type: 'repo',
+        language: r.language, stars: r.stargazers_count, forks: r.forks_count,
+        issues: r.open_issues_count, description: r.description,
+        x: cx + Math.cos(angle) * radius + (Math.random() - 0.5) * 60,
+        y: cy + Math.sin(angle) * radius + (Math.random() - 0.5) * 60,
+        vx: 0, vy: 0,
+      });
+    });
 
+    // ALL contributors
     const contribRepoCount = new Map<string, number>();
     contributors.forEach(contribs => {
       contribs.forEach(c => contribRepoCount.set(c.login, (contribRepoCount.get(c.login) || 0) + 1));
     });
 
-    const contribNodes: ContribNodeData[] = allContributors.slice(0, 30).map((c, i) => ({
-      id: `user-${c.login}`, name: c.login, type: 'contributor',
-      contributions: c.contributions, avatar: c.avatar_url,
-      repoCount: contribRepoCount.get(c.login) || 1,
-      x: 0, y: 0,
-    }));
+    allContributors.forEach((c, i) => {
+      const angle = (i / Math.max(1, allContributors.length)) * Math.PI * 2;
+      const radius = 400 + Math.random() * 100;
+      nodes.set(`user-${c.login}`, {
+        id: `user-${c.login}`, name: c.login, type: 'contributor',
+        contributions: c.contributions, avatar: c.avatar_url,
+        repoCount: contribRepoCount.get(c.login) || 1,
+        x: cx + Math.cos(angle) * radius + (Math.random() - 0.5) * 40,
+        y: cy + Math.sin(angle) * radius + (Math.random() - 0.5) * 40,
+        vx: 0, vy: 0,
+      });
+    });
 
-    const edges: Edge[] = [];
+    // Edges
+    let colorIdx = 0;
     contributors.forEach((contribs, repoName) => {
-      contribs.slice(0, 8).forEach(c => {
-        if (allContributors.slice(0, 30).find(ac => ac.login === c.login)) {
-          edges.push({ from: `user-${c.login}`, to: `repo-${repoName}`, weight: c.contributions, repoName });
+      contribs.forEach(c => {
+        if (nodes.has(`user-${c.login}`) && nodes.has(`repo-${repoName}`)) {
+          edges.push({ from: `user-${c.login}`, to: `repo-${repoName}`, weight: c.contributions, repoName, colorIdx: colorIdx++ % EDGE_COLORS.length });
         }
       });
     });
 
-    return { repoNodes, contribNodes, edges };
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+    return { nodeCount: nodes.size, edgeCount: edges.length };
   }, [repos, contributors, allContributors]);
 
-  // Reset velocities when the node set changes
+  // Simple force simulation
   useEffect(() => {
-    const vel = new Map<string, { vx: number; vy: number }>();
-    [...repoNodes, ...contribNodes].forEach(n => vel.set(n.id, { vx: 0, vy: 0 }));
-    velocityRef.current = vel;
-  }, [repoNodes, contribNodes]);
+    const nodes = nodesRef.current;
+    const edges = edgesRef.current;
+    if (nodes.size === 0) return;
 
-  // Initialize positions with force-directed-like layout
-  useEffect(() => {
-    const pos = new Map<string, NodePos>();
-    const cx = 550, cy = 300;
+    let iteration = 0;
+    const maxIterations = 200;
+    const maxEdgeWeight = Math.max(1, ...edges.map(e => e.weight));
 
-    // Place repos in upper area in a grid
-    repoNodes.forEach((n, i) => {
-      const cols = Math.ceil(Math.sqrt(repoNodes.length));
-      const row = Math.floor(i / cols);
-      const col = i % cols;
-      pos.set(n.id, {
-        x: 120 + col * 110 + (Math.random() - 0.5) * 20,
-        y: 60 + row * 90 + (Math.random() - 0.5) * 15,
-      });
-    });
+    function simulate() {
+      if (iteration >= maxIterations) return;
+      iteration++;
 
-    // Place contributors in lower area
-    contribNodes.forEach((n, i) => {
-      const cols = Math.ceil(Math.sqrt(contribNodes.length));
-      const row = Math.floor(i / cols);
-      const col = i % cols;
-      pos.set(n.id, {
-        x: 150 + col * 120 + (Math.random() - 0.5) * 20,
-        y: 380 + row * 90 + (Math.random() - 0.5) * 15,
-      });
-    });
+      const nodeArr = Array.from(nodes.values());
+      const cx = 600, cy = 400;
 
-    setNodePositions(pos);
-  }, [repoNodes, contribNodes]);
-
-  // Lightweight force simulation to keep graph alive and dynamic
-  useEffect(() => {
-    let frame: number;
-
-    const tick = () => {
-      const width = svgRef.current?.clientWidth ?? 1100;
-      const height = svgRef.current?.clientHeight ?? 650;
-      const padding = 40;
-
-      const nodes: GraphNode[] = [...repoNodes, ...contribNodes];
-      if (nodes.length === 0) {
-        frame = requestAnimationFrame(tick);
-        return;
-      }
-
-      const positions = new Map(positionRef.current);
-      const velocities = new Map(velocityRef.current);
-
-      // Ensure every node has velocity
-      nodes.forEach(n => {
-        if (!velocities.has(n.id)) velocities.set(n.id, { vx: 0, vy: 0 });
-        if (!positions.has(n.id)) positions.set(n.id, { x: width / 2, y: height / 2 });
-      });
-
-      const repulsion = 12000;
-      const spring = 0.0025;
-      const ideal = 180;
-      const friction = 0.9;
-      const maxSpeed = 6;
-
-      // Pairwise repulsion
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i];
-          const b = nodes[j];
-          const pa = positions.get(a.id)!;
-          const pb = positions.get(b.id)!;
-          const dx = pa.x - pb.x;
-          const dy = pa.y - pb.y;
-          const dist = Math.hypot(dx, dy) || 1;
-          const force = repulsion / (dist * dist);
-          const fx = (force * dx) / dist;
-          const fy = (force * dy) / dist;
-          if (dragNode !== a.id) {
-            const va = velocities.get(a.id)!;
-            va.vx += fx;
-            va.vy += fy;
-          }
-          if (dragNode !== b.id) {
-            const vb = velocities.get(b.id)!;
-            vb.vx -= fx;
-            vb.vy -= fy;
-          }
+      // Repulsion
+      for (let i = 0; i < nodeArr.length; i++) {
+        for (let j = i + 1; j < nodeArr.length; j++) {
+          const a = nodeArr[i], b = nodeArr[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+          const force = 800 / (dist * dist);
+          const fx = (dx / dist) * force, fy = (dy / dist) * force;
+          a.vx -= fx; a.vy -= fy;
+          b.vx += fx; b.vy += fy;
         }
       }
 
-      // Edge attraction
-      edges.forEach(edge => {
-        const pa = positions.get(edge.from);
-        const pb = positions.get(edge.to);
-        if (!pa || !pb) return;
-        const dx = pa.x - pb.x;
-        const dy = pa.y - pb.y;
-        const dist = Math.max(1, Math.hypot(dx, dy));
-        const force = spring * (dist - ideal);
-        const fx = (force * dx) / dist;
-        const fy = (force * dy) / dist;
-        if (dragNode !== edge.from) {
-          const va = velocities.get(edge.from)!;
-          va.vx -= fx;
-          va.vy -= fy;
-        }
-        if (dragNode !== edge.to) {
-          const vb = velocities.get(edge.to)!;
-          vb.vx += fx;
-          vb.vy += fy;
-        }
+      // Attraction along edges
+      for (const edge of edges) {
+        const a = nodes.get(edge.from), b = nodes.get(edge.to);
+        if (!a || !b) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+        const strength = 0.003 * (edge.weight / maxEdgeWeight);
+        const fx = dx * strength, fy = dy * strength;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      }
+
+      // Center gravity
+      for (const node of nodeArr) {
+        node.vx += (cx - node.x) * 0.0005;
+        node.vy += (cy - node.y) * 0.0005;
+      }
+
+      // Apply velocity with damping
+      const damping = 0.85;
+      for (const node of nodeArr) {
+        node.vx *= damping;
+        node.vy *= damping;
+        node.x += node.vx;
+        node.y += node.vy;
+      }
+    }
+
+    // Run simulation quickly
+    const interval = setInterval(() => {
+      for (let i = 0; i < 5; i++) simulate();
+    }, 16);
+
+    setTimeout(() => clearInterval(interval), 4000);
+    return () => clearInterval(interval);
+  }, [nodeCount, edgeCount]);
+
+  // Canvas rendering loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const images = new Map<string, HTMLImageElement>();
+
+    function loadImage(url: string) {
+      if (images.has(url)) return images.get(url)!;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      images.set(url, img);
+      return img;
+    }
+
+    function draw() {
+      if (!ctx || !canvas) return;
+      const container = containerRef.current;
+      if (!container) return;
+
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      canvas.width = w * window.devicePixelRatio;
+      canvas.height = h * window.devicePixelRatio;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+
+      const cam = cameraRef.current;
+      ctx.clearRect(0, 0, w, h);
+
+      // Apply camera transform
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.scale(cam.zoom, cam.zoom);
+      ctx.translate(-w / 2 + cam.x, -h / 2 + cam.y);
+
+      const nodes = nodesRef.current;
+      const edges = edgesRef.current;
+      const hovered = hoveredRef.current;
+      const maxEdgeWeight = Math.max(1, ...edges.map(e => e.weight));
+
+      const hoveredEdgeSet = new Set<number>();
+      if (hovered) {
+        edges.forEach((e, i) => {
+          if (e.from === hovered.id || e.to === hovered.id) hoveredEdgeSet.add(i);
+        });
+      }
+
+      // Draw edges
+      edges.forEach((edge, i) => {
+        const from = nodes.get(edge.from);
+        const to = nodes.get(edge.to);
+        if (!from || !to) return;
+        const isHighlighted = hovered ? hoveredEdgeSet.has(i) : false;
+        const normalizedW = edge.weight / maxEdgeWeight;
+        const lineWidth = 0.5 + normalizedW * 3;
+
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.strokeStyle = EDGE_COLORS[edge.colorIdx];
+        ctx.globalAlpha = hovered ? (isHighlighted ? 0.7 : 0.04) : 0.12 + normalizedW * 0.2;
+        ctx.lineWidth = isHighlighted ? lineWidth + 1 : lineWidth;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       });
 
-      // Integrate positions
-      const next = new Map<string, NodePos>();
+      const maxStars = Math.max(1, ...Array.from(nodes.values()).filter(n => n.type === 'repo').map(n => (n as RepoNode).stars));
+      const maxContrib = Math.max(1, ...Array.from(nodes.values()).filter(n => n.type === 'contributor').map(n => (n as ContribNode).contributions));
+
+      // Draw nodes
       nodes.forEach(node => {
-        const pos = positions.get(node.id)!;
-        const vel = velocities.get(node.id)!;
-        if (dragNode === node.id) {
-          next.set(node.id, pos);
-          vel.vx = vel.vy = 0;
-          return;
+        const isHovered = hovered?.id === node.id;
+        const isConnected = hovered ? hoveredEdgeSet.size > 0 && edges.some((e, i) => hoveredEdgeSet.has(i) && (e.from === node.id || e.to === node.id)) : false;
+        const dimmed = hovered && !isHovered && !isConnected;
+
+        ctx.globalAlpha = dimmed ? 0.15 : 1;
+
+        if (node.type === 'repo') {
+          const repoNode = node as RepoNode;
+          const size = 8 + (repoNode.stars / maxStars) * 14;
+          const color = LANG_COLORS[repoNode.language || ''] || '#a78bfa';
+
+          if (isHovered) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 15;
+          }
+
+          ctx.fillStyle = color;
+          ctx.globalAlpha = dimmed ? 0.1 : isHovered ? 0.95 : 0.7;
+          ctx.fillRect(node.x - size, node.y - size, size * 2, size * 2);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = isHovered ? 2.5 : 1;
+          ctx.strokeRect(node.x - size, node.y - size, size * 2, size * 2);
+
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+
+          // Label
+          ctx.globalAlpha = dimmed ? 0.1 : 0.8;
+          ctx.fillStyle = '#e2e8f0';
+          ctx.font = '9px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(node.name.length > 14 ? node.name.slice(0, 14) + '…' : node.name, node.x, node.y + size + 12);
+        } else {
+          const contribNode = node as ContribNode;
+          const size = 6 + (contribNode.contributions / maxContrib) * 12;
+
+          if (isHovered) {
+            ctx.shadowColor = '#a78bfa';
+            ctx.shadowBlur = 15;
+          }
+
+          // Draw avatar circle
+          const img = loadImage(contribNode.avatar);
+          if (img.complete && img.naturalWidth > 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, size, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(img, node.x - size, node.y - size, size * 2, size * 2);
+            ctx.restore();
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, size, 0, Math.PI * 2);
+            ctx.strokeStyle = isHovered ? '#a78bfa' : '#6366f1';
+            ctx.lineWidth = isHovered ? 2.5 : 1;
+            ctx.stroke();
+          } else {
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, size, 0, Math.PI * 2);
+            ctx.fillStyle = '#a78bfa';
+            ctx.globalAlpha = dimmed ? 0.1 : isHovered ? 0.85 : 0.6;
+            ctx.fill();
+            ctx.strokeStyle = '#a78bfa';
+            ctx.lineWidth = isHovered ? 2 : 1;
+            ctx.stroke();
+          }
+
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+
+          // Label
+          ctx.globalAlpha = dimmed ? 0.1 : 0.7;
+          ctx.fillStyle = '#e2e8f0';
+          ctx.font = '8px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(node.name.length > 12 ? node.name.slice(0, 12) + '…' : node.name, node.x, node.y + size + 11);
         }
-        vel.vx *= friction;
-        vel.vy *= friction;
-        vel.vx = Math.max(-maxSpeed, Math.min(maxSpeed, vel.vx));
-        vel.vy = Math.max(-maxSpeed, Math.min(maxSpeed, vel.vy));
-        const nx = Math.min(width - padding, Math.max(padding, pos.x + vel.vx));
-        const ny = Math.min(height - padding, Math.max(padding, pos.y + vel.vy));
-        next.set(node.id, { x: nx, y: ny });
+        ctx.globalAlpha = 1;
       });
 
-      velocityRef.current = velocities;
-      positionRef.current = next;
-      setNodePositions(next);
-      frame = requestAnimationFrame(tick);
+      ctx.restore();
+      animRef.current = requestAnimationFrame(draw);
+    }
+
+    animRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [nodeCount, edgeCount]);
+
+  // Screen to world coords
+  const screenToWorld = useCallback((sx: number, sy: number): Vec2 => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: sx, y: sy };
+    const container = containerRef.current;
+    if (!container) return { x: sx, y: sy };
+    const w = container.clientWidth, h = container.clientHeight;
+    const cam = cameraRef.current;
+    return {
+      x: (sx - w / 2) / cam.zoom + w / 2 - cam.x,
+      y: (sy - h / 2) / cam.zoom + h / 2 - cam.y,
     };
+  }, []);
 
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [repoNodes, contribNodes, edges, dragNode]);
+  const findNodeAt = useCallback((wx: number, wy: number): GraphNode | null => {
+    const nodes = nodesRef.current;
+    let closest: GraphNode | null = null;
+    let closestDist = Infinity;
+    nodes.forEach(node => {
+      const dx = node.x - wx, dy = node.y - wy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const hitRadius = node.type === 'repo' ? 20 : 18;
+      if (dist < hitRadius && dist < closestDist) {
+        closest = node;
+        closestDist = dist;
+      }
+    });
+    return closest;
+  }, []);
 
-  const getPos = useCallback((id: string): NodePos => {
-    return nodePositions.get(id) || { x: 0, y: 0 };
-  }, [nodePositions]);
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+    const world = screenToWorld(sx, sy);
+    const node = findNodeAt(world.x, world.y);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent, nodeId: string) => {
-    e.preventDefault();
-    const svg = svgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    const pos = nodePositions.get(nodeId);
-    if (!pos) return;
-    dragStartRef.current = { offsetX: e.clientX - rect.left - pos.x, offsetY: e.clientY - rect.top - pos.y };
-    setDragNode(nodeId);
-  }, [nodePositions]);
+    if (node) {
+      dragRef.current = { nodeId: node.id, panStart: null, isPan: false };
+    } else {
+      dragRef.current = { nodeId: null, panStart: { x: e.clientX, y: e.clientY }, isPan: true };
+    }
+  }, [screenToWorld, findNodeAt]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    if (dragNode) {
-      setNodePositions(prev => {
-        const next = new Map(prev);
-        next.set(dragNode, {
-          x: e.clientX - rect.left - dragStartRef.current.offsetX,
-          y: e.clientY - rect.top - dragStartRef.current.offsetY,
-        });
-        return next;
-      });
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+    setMouseScreen({ x: sx, y: sy });
+
+    const drag = dragRef.current;
+    if (drag.nodeId) {
+      const world = screenToWorld(sx, sy);
+      const node = nodesRef.current.get(drag.nodeId);
+      if (node) {
+        node.x = world.x;
+        node.y = world.y;
+        node.vx = 0;
+        node.vy = 0;
+      }
+    } else if (drag.isPan && drag.panStart) {
+      const dx = e.clientX - drag.panStart.x;
+      const dy = e.clientY - drag.panStart.y;
+      drag.panStart = { x: e.clientX, y: e.clientY };
+      setCamera(prev => ({ ...prev, x: prev.x + dx / prev.zoom, y: prev.y + dy / prev.zoom }));
+    } else {
+      const world = screenToWorld(sx, sy);
+      const node = findNodeAt(world.x, world.y);
+      hoveredRef.current = node;
+      setHoveredNode(node);
     }
-  }, [dragNode]);
+  }, [screenToWorld, findNodeAt]);
 
-  const handleMouseUp = useCallback(() => setDragNode(null), []);
+  const handleMouseUp = useCallback(() => {
+    dragRef.current = { nodeId: null, panStart: null, isPan: false };
+  }, []);
 
-  const maxStars = Math.max(1, ...repoNodes.map(r => r.stars));
-  const maxContrib = Math.max(1, ...contribNodes.map(c => c.contributions));
-  const maxEdgeWeight = Math.max(1, ...edges.map(e => e.weight));
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setCamera(prev => ({ ...prev, zoom: Math.max(0.1, Math.min(5, prev.zoom * delta)) }));
+  }, []);
 
-  // Edges connected to hovered node
-  const hoveredEdges = hoveredNode
-    ? new Set(edges.filter(e => e.from === hoveredNode.id || e.to === hoveredNode.id).map((_, i) => i))
-    : null;
+  const resetView = useCallback(() => setCamera({ x: 0, y: 0, zoom: 1 }), []);
 
   return (
     <div className="space-y-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-between">
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-foreground">Network Graph</h2>
           <p className="text-sm text-muted-foreground">
-            Contributor ↔ Repository connections — drag nodes to rearrange
+            {repos.length} repos · {allContributors.length} contributors · {edgesRef.current.length} connections — scroll to zoom, drag to pan/move nodes
           </p>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={() => setCamera(p => ({ ...p, zoom: Math.min(5, p.zoom * 1.3) }))}
+            className="p-2 rounded-lg bg-surface-card border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-all">
+            <ZoomIn className="w-4 h-4" />
+          </button>
+          <button onClick={() => setCamera(p => ({ ...p, zoom: Math.max(0.1, p.zoom * 0.7) }))}
+            className="p-2 rounded-lg bg-surface-card border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-all">
+            <ZoomOut className="w-4 h-4" />
+          </button>
+          <button onClick={resetView}
+            className="p-2 rounded-lg bg-surface-card border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-all">
+            <Maximize2 className="w-4 h-4" />
+          </button>
         </div>
       </motion.div>
 
-      <div className="bg-surface-card border border-border rounded-xl overflow-hidden relative" style={{ height: '650px' }}>
-        <svg
-          ref={svgRef} width="100%" height="100%"
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        ref={containerRef}
+        className="bg-surface-card border border-border rounded-xl overflow-hidden relative"
+        style={{ height: '70vh', cursor: dragRef.current.nodeId ? 'grabbing' : dragRef.current.isPan ? 'move' : 'default' }}
+      >
+        <canvas
+          ref={canvasRef}
           className="absolute inset-0"
+          onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          onMouseLeave={() => { handleMouseUp(); setHoveredNode(null); }}
-          style={{ cursor: dragNode ? 'grabbing' : 'default' }}
-        >
-          {/* Edges with colored lines based on weight */}
-          {edges.map((edge, i) => {
-            const from = getPos(edge.from);
-            const to = getPos(edge.to);
-            if (!from.x && !from.y) return null;
-            const normalizedWeight = edge.weight / maxEdgeWeight;
-            const strokeWidth = 1 + normalizedWeight * 4;
-            const color = EDGE_COLORS[i % EDGE_COLORS.length];
-            const isHighlighted = hoveredEdges ? hoveredEdges.has(i) : false;
-            const opacity = hoveredEdges ? (isHighlighted ? 0.7 : 0.06) : 0.2 + normalizedWeight * 0.3;
+          onMouseLeave={() => { handleMouseUp(); hoveredRef.current = null; setHoveredNode(null); }}
+          onWheel={handleWheel}
+        />
 
-            return (
-              <line key={i} x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                stroke={color} strokeOpacity={opacity}
-                strokeWidth={isHighlighted ? strokeWidth + 1 : strokeWidth}
-                className="transition-all duration-300"
-              />
-            );
-          })}
-
-          {/* Repo Nodes (Squares) */}
-          {repoNodes.map(node => {
-            const size = 10 + (node.stars / maxStars) * 18;
-            const color = LANG_COLORS[node.language || ''] || 'hsl(263, 70%, 66%)';
-            const pos = getPos(node.id);
-            const isHovered = hoveredNode?.id === node.id;
-            const dimmed = hoveredNode && !isHovered && hoveredEdges && !edges.some(
-              (e, i) => hoveredEdges.has(i) && (e.from === node.id || e.to === node.id)
-            );
-
-            return (
-              <g key={node.id}
-                onMouseDown={e => handleMouseDown(e, node.id)}
-                onMouseEnter={() => setHoveredNode(node)}
-                onMouseLeave={() => { if (!dragNode) setHoveredNode(null); }}
-                style={{ cursor: dragNode === node.id ? 'grabbing' : 'grab' }}
-                opacity={dimmed ? 0.2 : 1}
-              >
-                {isHovered && (
-                  <rect x={pos.x - size - 5} y={pos.y - size - 5} width={(size + 5) * 2} height={(size + 5) * 2}
-                    rx={4} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.4}
-                    className="animate-pulse" />
-                )}
-                <rect
-                  x={pos.x - (isHovered ? size + 2 : size)}
-                  y={pos.y - (isHovered ? size + 2 : size)}
-                  width={(isHovered ? size + 2 : size) * 2}
-                  height={(isHovered ? size + 2 : size) * 2}
-                  rx={3}
-                  fill={color} fillOpacity={isHovered ? 0.9 : 0.7}
-                  stroke={color} strokeWidth={isHovered ? 2.5 : 1.5}
-                  className="transition-all duration-200"
-                />
-                <text x={pos.x} y={pos.y + size + 14} textAnchor="middle"
-                  fill="hsl(220, 10%, 55%)" fontSize={9} fontFamily="Inter">
-                  {node.name.length > 12 ? node.name.slice(0, 12) + '…' : node.name}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Contributor Nodes (Circles) */}
-          {contribNodes.map(node => {
-            const size = 8 + (node.contributions / maxContrib) * 16;
-            const pos = getPos(node.id);
-            const isHovered = hoveredNode?.id === node.id;
-            const dimmed = hoveredNode && !isHovered && hoveredEdges && !edges.some(
-              (e, i) => hoveredEdges.has(i) && (e.from === node.id || e.to === node.id)
-            );
-
-            return (
-              <g key={node.id}
-                onMouseDown={e => handleMouseDown(e, node.id)}
-                onMouseEnter={() => setHoveredNode(node)}
-                onMouseLeave={() => { if (!dragNode) setHoveredNode(null); }}
-                style={{ cursor: dragNode === node.id ? 'grabbing' : 'grab' }}
-                opacity={dimmed ? 0.2 : 1}
-              >
-                {isHovered && (
-                  <circle cx={pos.x} cy={pos.y} r={size + 6} fill="none"
-                    stroke="hsl(263, 70%, 66%)" strokeWidth={2} strokeOpacity={0.4}
-                    className="animate-pulse" />
-                )}
-                <circle cx={pos.x} cy={pos.y} r={isHovered ? size + 3 : size}
-                  fill="hsl(263, 70%, 66%)" fillOpacity={isHovered ? 0.85 : 0.6}
-                  stroke="hsl(263, 70%, 66%)" strokeWidth={isHovered ? 2 : 1}
-                  className="transition-all duration-200"
-                />
-                <text x={pos.x} y={pos.y + size + 12} textAnchor="middle"
-                  fill="hsl(220, 10%, 55%)" fontSize={8} fontFamily="Inter">
-                  {node.name}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Hover Tooltip */}
-        {hoveredNode && !dragNode && (
+        {/* Tooltip */}
+        {hoveredNode && !dragRef.current.nodeId && (
           <div
-            className="absolute pointer-events-none z-50 bg-surface-overlay/95 backdrop-blur-md rounded-lg p-3 border border-border shadow-xl text-xs max-w-[260px]"
+            className="absolute pointer-events-none z-50 bg-popover/95 backdrop-blur-md rounded-lg p-3 border border-border shadow-xl text-xs max-w-[260px]"
             style={{
-              left: Math.min(mousePos.x + 16, (svgRef.current?.clientWidth || 800) - 280),
-              top: Math.min(mousePos.y - 10, (svgRef.current?.clientHeight || 600) - 160),
+              left: Math.min(mouseScreen.x + 16, (containerRef.current?.clientWidth || 800) - 280),
+              top: Math.max(10, Math.min(mouseScreen.y - 10, (containerRef.current?.clientHeight || 600) - 160)),
             }}
           >
             {hoveredNode.type === 'repo' ? (
               <div className="space-y-1.5">
-                <p className="font-semibold text-foreground text-sm">{hoveredNode.name}</p>
-                {hoveredNode.description && (
-                  <p className="text-muted-foreground line-clamp-2">{hoveredNode.description}</p>
+                <p className="font-semibold text-popover-foreground text-sm">{hoveredNode.name}</p>
+                {(hoveredNode as RepoNode).description && (
+                  <p className="text-muted-foreground line-clamp-2">{(hoveredNode as RepoNode).description}</p>
                 )}
                 <div className="flex gap-3 text-muted-foreground">
-                  <span>⭐ {hoveredNode.stars}</span>
-                  <span>🍴 {hoveredNode.forks}</span>
-                  <span>🐛 {hoveredNode.issues}</span>
+                  <span>⭐ {(hoveredNode as RepoNode).stars}</span>
+                  <span>🍴 {(hoveredNode as RepoNode).forks}</span>
+                  <span>🐛 {(hoveredNode as RepoNode).issues}</span>
                 </div>
-                {hoveredNode.language && (
+                {(hoveredNode as RepoNode).language && (
                   <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: LANG_COLORS[hoveredNode.language] || 'hsl(263,70%,66%)' }} />
-                    <span className="text-muted-foreground">{hoveredNode.language}</span>
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: LANG_COLORS[(hoveredNode as RepoNode).language || ''] || '#a78bfa' }} />
+                    <span className="text-muted-foreground">{(hoveredNode as RepoNode).language}</span>
                   </div>
                 )}
-                <div className="text-[10px] text-muted-foreground/80 space-y-0.5">
-                  <p className="text-muted-foreground/70">Top contributors:</p>
-                  {edges
-                    .filter(e => e.to === hoveredNode.id)
-                    .sort((a, b) => b.weight - a.weight)
-                    .slice(0, 4)
-                    .map(e => (
-                      <div key={`${e.from}-${e.to}`} className="flex items-center gap-1">
-                        <span className="font-medium text-foreground">{e.from.replace('user-', '')}</span>
-                        <span className="text-muted-foreground/60">· {e.weight} commits</span>
-                      </div>
-                    ))}
-                </div>
               </div>
             ) : (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <img src={hoveredNode.avatar} alt="" className="w-6 h-6 rounded-full" />
-                  <p className="font-semibold text-foreground text-sm">{hoveredNode.name}</p>
+                  <img src={(hoveredNode as ContribNode).avatar} alt="" className="w-6 h-6 rounded-full" />
+                  <p className="font-semibold text-popover-foreground text-sm">{hoveredNode.name}</p>
                 </div>
                 <p className="text-muted-foreground">
-                  {hoveredNode.contributions.toLocaleString()} contributions across {hoveredNode.repoCount} repos
+                  {(hoveredNode as ContribNode).contributions.toLocaleString()} contributions across {(hoveredNode as ContribNode).repoCount} repos
                 </p>
-                <div className="text-[10px] text-muted-foreground/70 space-y-0.5">
-                  <p className="text-muted-foreground/70">Top repos:</p>
-                  {edges
-                    .filter(e => e.from === hoveredNode.id)
-                    .sort((a, b) => b.weight - a.weight)
-                    .slice(0, 5)
-                    .map(e => (
-                      <div key={`${e.from}-${e.to}`} className="flex items-center gap-1">
-                        <span className="font-mono text-primary">{e.repoName}</span>
-                        <span className="text-muted-foreground/60">· {e.weight} commits</span>
-                      </div>
-                    ))}
-                </div>
               </div>
             )}
           </div>
         )}
 
-        {/* Legend */}
-        <div className="absolute top-4 left-4 bg-surface-overlay/80 backdrop-blur-sm rounded-lg p-3 border border-border text-xs">
-          <p className="text-foreground font-medium mb-2">{repoNodes.length} repos · {contribNodes.length} contributors · {edges.length} connections</p>
-          <p className="text-muted-foreground mb-2">🖱️ Drag nodes to rearrange</p>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-primary/70" /> Repositories (square)</div>
-            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-primary/60" /> Contributors (circle)</div>
-          </div>
-          <p className="text-muted-foreground mt-2 text-[10px]">Edge width = contribution count</p>
+        {/* Bottom legend - minimal */}
+        <div className="absolute bottom-3 left-3 flex items-center gap-4 text-[10px] text-muted-foreground bg-surface-card/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-border">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-primary/70" /> Repos</div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-primary/60" /> Contributors</div>
+          <span>Edge width = contributions</span>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

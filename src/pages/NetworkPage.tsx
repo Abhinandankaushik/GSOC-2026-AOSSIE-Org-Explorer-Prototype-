@@ -37,6 +37,7 @@ export default function NetworkPage() {
 
   // Interaction state
   const dragRef = useRef<{ nodeId: string | null; panStart: Vec2 | null; isPan: boolean }>({ nodeId: null, panStart: null, isPan: false });
+  const touchStartDistanceRef = useRef<number | null>(null);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [mouseScreen, setMouseScreen] = useState<Vec2>({ x: 0, y: 0 });
   const hoveredRef = useRef<GraphNode | null>(null);
@@ -47,6 +48,27 @@ export default function NetworkPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [maxContributorsShow, setMaxContributorsShow] = useState(Math.min(50, allContributors.length));
+  const [screenWidth, setScreenWidth] = useState(window.innerWidth);
+
+  // Handle window resize for responsive height
+  useEffect(() => {
+    const handleResize = () => setScreenWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Setup canvas dimensions
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const rect = container.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.scale(dpr, dpr);
+  }, [screenWidth, isFullscreen]);
 
   // Build graph data with filters
   const { nodeCount, edgeCount } = useMemo(() => {
@@ -362,7 +384,7 @@ export default function NetworkPage() {
 
     animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
-  }, [nodeCount, edgeCount, searchQuery, matchesSearch]);
+  }, [nodeCount, edgeCount, searchQuery, matchesSearch, isFullscreen]);
 
   // Screen to world coords
   const screenToWorld = useCallback((sx: number, sy: number): Vec2 => {
@@ -445,6 +467,53 @@ export default function NetworkPage() {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setCamera(prev => ({ ...prev, zoom: Math.max(0.1, Math.min(5, prev.zoom * delta)) }));
+  }, []);
+
+  const getDistance = (touch1: { clientX: number; clientY: number }, touch2: { clientX: number; clientY: number }): number => {
+    const dx = touch1.clientX - touch2.clientX;
+    const dy = touch1.clientY - touch2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const sx = touch.clientX - rect.left, sy = touch.clientY - rect.top;
+      dragRef.current = { nodeId: null, panStart: { x: touch.clientX, y: touch.clientY }, isPan: true };
+    } else if (e.touches.length === 2) {
+      dragRef.current = { nodeId: null, panStart: null, isPan: false };
+      touchStartDistanceRef.current = getDistance(e.touches[0], e.touches[1]);
+    }
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      const drag = dragRef.current;
+      if (drag.isPan && drag.panStart) {
+        const dx = touch.clientX - drag.panStart.x;
+        const dy = touch.clientY - drag.panStart.y;
+        drag.panStart = { x: touch.clientX, y: touch.clientY };
+        setCamera(prev => ({ ...prev, x: prev.x + dx / prev.zoom, y: prev.y + dy / prev.zoom }));
+      }
+    } else if (e.touches.length === 2) {
+      const currentDistance = getDistance(e.touches[0], e.touches[1]);
+      if (touchStartDistanceRef.current !== null && touchStartDistanceRef.current > 0) {
+        const ratio = currentDistance / touchStartDistanceRef.current;
+        setCamera(prev => ({ ...prev, zoom: Math.max(0.1, Math.min(5, prev.zoom * (ratio > 1 ? 1.05 : 0.95))) }));
+        touchStartDistanceRef.current = currentDistance;
+      }
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    dragRef.current = { nodeId: null, panStart: null, isPan: false };
+    touchStartDistanceRef.current = null;
   }, []);
 
   const resetView = useCallback(() => setCamera({ x: 0, y: 0, zoom: 1 }), []);
@@ -577,19 +646,22 @@ export default function NetworkPage() {
         ref={containerRef}
         className="bg-surface-card border border-border rounded-xl overflow-hidden relative"
         style={{
-          height: isFullscreen ? '100vh' : 'calc(100vh - 360px)',
-          minHeight: '420px',
+          height: isFullscreen ? '100vh' : screenWidth < 640 ? 'calc(100vh - 120px)' : screenWidth < 768 ? 'calc(100vh - 180px)' : 'calc(100vh - 360px)',
+          minHeight: '250px',
           cursor: dragRef.current.nodeId ? 'grabbing' : dragRef.current.isPan ? 'move' : 'default',
         }}
       >
         <canvas
           ref={canvasRef}
-          className="absolute inset-0"
+          className="absolute inset-0 touch-none"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={() => { handleMouseUp(); hoveredRef.current = null; setHoveredNode(null); }}
           onWheel={handleWheel}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         />
 
         {/* Tooltip */}
@@ -634,14 +706,17 @@ export default function NetworkPage() {
         )}
 
         {/* Bottom legend - stats */}
-        <div className="absolute bottom-3 left-3 text-[10px] text-muted-foreground bg-surface-card/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-border">
-          <div className="flex items-center gap-4">
+        <div className="absolute bottom-3 left-3 text-[10px] text-muted-foreground bg-surface-card/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-border max-w-[calc(100%-2rem)]">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
             <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-primary/70" /> Repos</div>
             <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-primary/60" /> Contributors</div>
-            <span>Edge width = contributions</span>
+            <span className="hidden md:inline">Edge width = contributions</span>
             {searchQuery && (
-              <span className="text-xs ml-2 px-2 py-1 rounded bg-primary/10 text-primary">Filtered by: "{searchQuery}"</span>
+              <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary">Filter: "{searchQuery}"</span>
             )}
+          </div>
+          <div className="text-[9px] text-muted-foreground/70 mt-1.5 md:hidden">
+            Drag to pan · Scroll to zoom
           </div>
         </div>
 

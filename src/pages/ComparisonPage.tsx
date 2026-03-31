@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { GitFork, Users, Star, AlertCircle, Activity, TrendingUp, GitPullRequest, Heart, AlertTriangle, Scale, Shield, Clock, Zap, GitCommit, Gift, Tag } from 'lucide-react';
 import { useAppStore } from '@/store/app-store';
+import { useToast } from '@/hooks/use-toast';
 import SkeletonCard from '@/components/shared/SkeletonCard';
 import ActivityHeatmap from '@/components/dashboard/ActivityHeatmap';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line } from 'recharts';
@@ -36,11 +37,23 @@ const chartTooltipStyle = {
 export default function ComparisonPage() {
   const { selectedOrgs, mode, orgsData, isLoading, isSetup } = useAppStore();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   useEffect(() => {
-    if (isSetup) navigate('/');
-    else if (mode !== 'multi' || selectedOrgs.length === 0) navigate('/dashboard');
-  }, [isSetup, mode, selectedOrgs, navigate]);
+    if (isSetup) {
+      navigate('/');
+    } else if (mode !== 'multi' || selectedOrgs.length === 0) {
+      // If multi-org, show notification and redirect to welcome
+      if (mode === 'multi' && selectedOrgs.length === 0) {
+        toast({
+          title: 'No organizations',
+          description: 'No organizations to analyse. Please add organizations to continue.',
+          variant: 'default',
+        });
+      }
+      navigate('/');
+    }
+  }, [isSetup, mode, selectedOrgs, navigate, toast]);
 
   const comparisonOrgs = selectedOrgs
     .map(orgName => ({
@@ -612,7 +625,7 @@ export default function ComparisonPage() {
                       className="p-2 rounded bg-surface-page/50 border border-border/30 hover:border-primary/30 transition-colors text-xs"
                     >
                       <div className="flex items-start gap-2">
-                        <div className="text-foreground mt-0.5 text-primary">
+                        <div className="text-primary mt-0.5">
                           {event.type === 'PushEvent' && <GitCommit className="w-4 h-4" />}
                           {event.type === 'PullRequestEvent' && <GitPullRequest className="w-4 h-4" />}
                           {event.type === 'IssuesEvent' && <AlertCircle className="w-4 h-4" />}

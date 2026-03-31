@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Search, Filter, ArrowUpDown, Star, GitFork, AlertCircle } from 'lucide-react';
@@ -12,7 +12,7 @@ import { formatDistanceToNow } from 'date-fns';
 type SortKey = 'pushed_at' | 'stargazers_count' | 'forks_count' | 'open_issues_count' | 'name';
 
 export default function RepositoriesPage() {
-  const { repos, healthScores, languages, isLoading } = useAppStore();
+  const { org, repos, healthScores, languages, isLoading, loadOrg } = useAppStore();
   const navigate = useNavigate();
   
   const [search, setSearch] = useState('');
@@ -50,6 +50,43 @@ export default function RepositoriesPage() {
     if (sortBy === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortBy(key); setSortDir('desc'); }
   };
+
+  // Load org data if not loaded yet
+  useEffect(() => {
+    if (!org) {
+      loadOrg();
+    }
+  }, [org, loadOrg]);
+
+  // Show loading skeleton while fetching data
+  if (isLoading) {
+    return (
+      <div className="space-y-3 sm:space-y-4">
+        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="animate-pulse">
+          <div className="h-6 w-40 shimmer rounded mb-2" />
+          <div className="h-4 w-48 shimmer rounded" />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-surface-card border border-border rounded-xl p-2 sm:p-3 animate-pulse">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (<div key={i} className="h-10 w-full sm:flex-1 shimmer rounded" />))}
+          </div>
+        </motion.div>
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="bg-surface-card border border-border rounded-lg p-3 sm:p-4 animate-pulse">
+              <div className="flex justify-between items-start gap-4">
+                <div className="flex-1">
+                  <div className="h-4 w-32 shimmer rounded mb-2" />
+                  <div className="h-3 w-48 shimmer rounded" />
+                </div>
+                <div className="h-6 w-12 shimmer rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3 sm:space-y-4">

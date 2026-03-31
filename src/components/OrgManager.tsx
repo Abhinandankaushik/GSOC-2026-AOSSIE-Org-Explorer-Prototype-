@@ -14,7 +14,7 @@ import {
 } from './ui/dropdown-menu';
 
 export function OrgManager() {
-  const { orgs, selectedOrgs, mode, addOrg, removeOrg, setSelectedOrgs, setMode, loadMultipleOrgs } = useAppStore();
+  const { orgs, selectedOrgs, mode, orgName, addOrg, removeOrg, setSelectedOrgs, setMode, loadMultipleOrgs } = useAppStore();
   const [newOrgInput, setNewOrgInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -37,19 +37,55 @@ export function OrgManager() {
     }
   };
 
-  const handleRemoveOrg = (orgName: string) => {
+  const handleRemoveOrg = async (orgName: string) => {
+    // Check if this org is selected in multi mode before removing
+    const wasSelected = selectedOrgs.includes(orgName);
+    
     removeOrg(orgName);
+    
+    // If we were in multi mode and the org was selected, reload data
+    if (mode === 'multi' && wasSelected && selectedOrgs.length > 1) {
+      // Remove the org from selected orgs
+      const updated = selectedOrgs.filter(o => o !== orgName);
+      setSelectedOrgs(updated);
+      
+      if (updated.length > 0) {
+        setIsLoading(true);
+        try {
+          await loadMultipleOrgs(updated);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    }
   };
 
   const handleToggleMode = async (newMode: 'single' | 'multi') => {
     setMode(newMode);
     
-    if (newMode === 'multi' && selectedOrgs.length > 0) {
-      setIsLoading(true);
-      try {
-        await loadMultipleOrgs(selectedOrgs);
-      } finally {
-        setIsLoading(false);
+    if (newMode === 'multi') {
+      // Auto-add current single org if nothing selected yet
+      let orgsToLoad = selectedOrgs;
+      if (orgsToLoad.length === 0) {
+        // Prioritize: current orgName (single mode) > first available org
+        if (orgName && orgs.some(o => o.name === orgName)) {
+          orgsToLoad = [orgName];
+        } else if (orgs.length > 0) {
+          orgsToLoad = [orgs[0].name];
+        }
+        
+        if (orgsToLoad.length > 0) {
+          setSelectedOrgs(orgsToLoad);
+        }
+      }
+      
+      if (orgsToLoad.length > 0) {
+        setIsLoading(true);
+        try {
+          await loadMultipleOrgs(orgsToLoad);
+        } finally {
+          setIsLoading(false);
+        }
       }
     }
   };

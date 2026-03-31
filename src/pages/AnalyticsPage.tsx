@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   BarChart3, TrendingUp, GitPullRequest, AlertCircle, Code, GitFork, Eye, Scale, Clock,
@@ -27,7 +27,14 @@ const PIE_COLORS = [
 ];
 
 export default function AnalyticsPage() {
-  const { repos, allContributors, events, healthScores, contributors, orgName, isLoading } = useAppStore();
+  const { org, repos, allContributors, events, healthScores, contributors, orgName, isLoading, loadOrg } = useAppStore();
+
+  // Load org data if not loaded yet
+  useEffect(() => {
+    if (!org) {
+      loadOrg();
+    }
+  }, [org, loadOrg]);
 
   // ========== 1. HIGH-LEVEL ORG OVERVIEW ==========
   const orgOverview = useMemo(() => {

@@ -1,4 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ExternalLink, GitFork, Star, AlertCircle, Eye, Scale, Tag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +10,14 @@ import { formatDistanceToNow } from 'date-fns';
 export default function RepoDetailPage() {
   const { repoName } = useParams();
   const navigate = useNavigate();
-  const { repos, healthScores, contributors, orgName, isLoading } = useAppStore();
+  const { org, repos, healthScores, contributors, orgName, isLoading, loadOrg } = useAppStore();
+
+  // Load org data if not loaded yet
+  useEffect(() => {
+    if (!org) {
+      loadOrg();
+    }
+  }, [org, loadOrg]);
 
   const repo = repos.find(r => r.name === repoName);
   const health = repo ? healthScores.get(repo.id) : undefined;

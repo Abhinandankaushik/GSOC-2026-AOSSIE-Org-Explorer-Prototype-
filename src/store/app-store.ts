@@ -57,11 +57,21 @@ interface AppState {
   syncData: () => Promise<void>;
 }
 
+const safeJsonParse = <T,>(key: string, fallback: T): T => {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : fallback;
+  } catch {
+    // localStorage corrupted or invalid JSON - return fallback silently
+    return fallback;
+  }
+};
+
 export const useAppStore = create<AppState>((set, get) => ({
   pat: localStorage.getItem('org-explorer-pat') || '',
   orgName: localStorage.getItem('org-explorer-active-org') || '',
-  orgs: JSON.parse(localStorage.getItem('org-explorer-orgs') || '[]'),
-  selectedOrgs: JSON.parse(localStorage.getItem('org-explorer-selected-orgs') || '[]'),
+  orgs: safeJsonParse('org-explorer-orgs', []),
+  selectedOrgs: safeJsonParse('org-explorer-selected-orgs', []),
   mode: (localStorage.getItem('org-explorer-mode') || 'single') as 'single' | 'multi',
   org: null,
   repos: [],
@@ -101,12 +111,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeOrg: (orgName) => {
-    const { orgs, selectedOrgs } = get();
+    const { orgs, selectedOrgs, orgsData } = get();
     const newOrgs = orgs.filter(o => o.name !== orgName);
     const newSelected = selectedOrgs.filter(o => o !== orgName);
+    
+    // Clean up orgsData for removed org
+    const newOrgsData = new Map(orgsData);
+    newOrgsData.delete(orgName);
+    
     localStorage.setItem('org-explorer-orgs', JSON.stringify(newOrgs));
     localStorage.setItem('org-explorer-selected-orgs', JSON.stringify(newSelected));
-    set({ orgs: newOrgs, selectedOrgs: newSelected });
+    set({ orgs: newOrgs, selectedOrgs: newSelected, orgsData: newOrgsData });
   },
 
   setSelectedOrgs: (orgs) => {
@@ -263,7 +278,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             healthScores: scores,
           });
         } catch (err) {
-          console.error(`Failed to load org ${orgName}:`, err);
+          // Silently skip failed org - continue loading other orgs
+          // Error is already set in store from main try-catch
         }
       }
 

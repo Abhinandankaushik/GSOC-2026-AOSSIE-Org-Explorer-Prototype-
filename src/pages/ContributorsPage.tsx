@@ -32,7 +32,7 @@ const chartTooltipStyle = {
 };
 
 export default function ContributorsPage() {
-  const { allContributors, contributors, orgName, pat } = useAppStore();
+  const { org, allContributors, contributors, orgName, pat, isLoading, loadOrg } = useAppStore();
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SortKey>('contributions');
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
@@ -96,6 +96,42 @@ export default function ContributorsPage() {
       { name: 'Creates', value: activityStats.creates },
     ].filter(d => d.value > 0);
   }, [activityStats]);
+
+  // Load org data if not loaded yet
+  useEffect(() => {
+    if (!org) {
+      loadOrg();
+    }
+  }, [org, loadOrg]);
+
+  // Show loading skeleton while fetching data
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="animate-pulse">
+          <div className="h-6 w-48 shimmer rounded mb-2" />
+          <div className="h-4 w-64 shimmer rounded" />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-surface-card border border-border rounded-xl p-3 animate-pulse">
+          <div className="h-10 w-full shimmer rounded" />
+        </motion.div>
+        <div className="space-y-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="bg-surface-card border border-border rounded-lg p-3 sm:p-4 animate-pulse">
+              <div className="flex gap-3 items-start">
+                <div className="w-10 h-10 rounded-full shimmer flex-shrink-0" />
+                <div className="flex-1">
+                  <div className="h-4 w-32 shimmer rounded mb-2" />
+                  <div className="h-3 w-40 shimmer rounded" />
+                </div>
+                <div className="h-6 w-12 shimmer rounded flex-shrink-0" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

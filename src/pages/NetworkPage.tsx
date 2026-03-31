@@ -23,12 +23,13 @@ type GraphNode = RepoNode | ContribNode;
 interface Edge { from: string; to: string; weight: number; repoName: string; colorIdx: number }
 
 export default function NetworkPage() {
-  const { repos, contributors, allContributors, isLoading } = useAppStore();
+  const { org, repos, contributors, allContributors, isLoading, loadOrg } = useAppStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animRef = useRef<number>(0);
   const nodesRef = useRef<Map<string, GraphNode>>(new Map());
   const edgesRef = useRef<Edge[]>([]);
+  const scrollLockRef = useRef<boolean>(false);
 
   // Camera state
   const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
@@ -39,8 +40,10 @@ export default function NetworkPage() {
   const dragRef = useRef<{ nodeId: string | null; panStart: Vec2 | null; isPan: boolean }>({ nodeId: null, panStart: null, isPan: false });
   const touchStartDistanceRef = useRef<number | null>(null);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [mouseScreen, setMouseScreen] = useState<Vec2>({ x: 0, y: 0 });
   const hoveredRef = useRef<GraphNode | null>(null);
+  const selectedRef = useRef<GraphNode | null>(null);
 
   // Filter state
   const [minContributors, setMinContributors] = useState(1);
@@ -57,6 +60,21 @@ export default function NetworkPage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Load org data if not loaded yet
+  useEffect(() => {
+    if (!org) {
+      loadOrg();
+    }
+  }, [org, loadOrg]);
+
+  // Prevent scroll-to-top when zooming on mobile
+  useEffect(() => {
+    if (scrollLockRef.current && window.innerWidth < 768) {
+      window.scrollTo(0, 0);
+      scrollLockRef.current = false;
+    }
+  }, [camera.zoom]);
+
   // Setup canvas dimensions
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -66,6 +84,8 @@ export default function NetworkPage() {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.scale(dpr, dpr);
   }, [screenWidth, isFullscreen]);
@@ -251,6 +271,7 @@ export default function NetworkPage() {
       const nodes = nodesRef.current;
       const edges = edgesRef.current;
       const hovered = hoveredRef.current;
+      const selected = selectedRef.current;
       const maxEdgeWeight = Math.max(1, ...edges.map(e => e.weight));
 
       const hoveredEdgeSet = new Set<number>();
@@ -294,6 +315,8 @@ export default function NetworkPage() {
       // Draw nodes
       nodes.forEach(node => {
         const isHovered = hovered?.id === node.id;
+        const isSelected = selected?.id === node.id;
+        const isHighlighted = isHovered || isSelected;
         const isConnected = hovered ? hoveredEdgeSet.size > 0 && edges.some((e, i) => hoveredEdgeSet.has(i) && (e.from === node.id || e.to === node.id)) : false;
         const searchMatches = matchesSearch(node);
         const dimmed = searchQuery ? !searchMatches : (hovered && !isHovered && !isConnected);
@@ -305,23 +328,23 @@ export default function NetworkPage() {
           const size = 8 + (repoNode.stars / maxStars) * 14;
           const color = LANG_COLORS[repoNode.language || ''] || '#a78bfa';
 
-          if ((isHovered && !searchQuery) || (searchQuery && searchMatches)) {
+          if ((isHighlighted && !searchQuery) || (searchQuery && searchMatches)) {
             ctx.shadowColor = searchQuery && searchMatches ? '#fbbf24' : color;
             ctx.shadowBlur = searchQuery && searchMatches ? 20 : 15;
           }
 
           ctx.fillStyle = color;
-          ctx.globalAlpha = dimmed ? (searchQuery ? 0.08 : 0.1) : (searchQuery && searchMatches ? 0.95 : (isHovered && !searchQuery ? 0.95 : 0.7));
+          ctx.globalAlpha = dimmed ? (searchQuery ? 0.08 : 0.1) : (searchQuery && searchMatches ? 0.95 : (isHighlighted && !searchQuery ? 0.95 : 0.7));
           ctx.fillRect(node.x - size, node.y - size, size * 2, size * 2);
           ctx.strokeStyle = searchQuery && searchMatches ? '#fbbf24' : color;
-          ctx.lineWidth = (isHovered || (searchQuery && searchMatches)) ? 3 : 1;
+          ctx.lineWidth = (isHighlighted || (searchQuery && searchMatches)) ? 3 : 1;
           ctx.strokeRect(node.x - size, node.y - size, size * 2, size * 2);
 
           ctx.shadowColor = 'transparent';
           ctx.shadowBlur = 0;
 
           // Label
-          ctx.globalAlpha = dimmed ? (searchQuery ? 0.08 : 0.1) : (searchQuery && searchMatches ? 1 : (isHovered && !searchQuery ? 1 : 0.8));
+          ctx.globalAlpha = dimmed ? (searchQuery ? 0.08 : 0.1) : (searchQuery && searchMatches ? 1 : (isHighlighted && !searchQuery ? 1 : 0.8));
           ctx.fillStyle = searchQuery && searchMatches ? '#fbbf24' : '#e2e8f0';
           ctx.font = '9px Inter, sans-serif';
           ctx.textAlign = 'center';
@@ -330,14 +353,14 @@ export default function NetworkPage() {
           const contribNode = node as ContribNode;
           const size = 6 + (contribNode.contributions / maxContrib) * 12;
 
-          if (isHovered && !searchQuery) {
+          if (isHighlighted && !searchQuery) {
             ctx.shadowColor = '#a78bfa';
             ctx.shadowBlur = 15;
           }
 
           // Draw avatar circle
           const img = loadImage(contribNode.avatar);
-          if ((isHovered && !searchQuery) || (searchQuery && searchMatches)) {
+          if ((isHighlighted && !searchQuery) || (searchQuery && searchMatches)) {
             ctx.shadowColor = searchQuery && searchMatches ? '#fbbf24' : '#a78bfa';
             ctx.shadowBlur = searchQuery && searchMatches ? 20 : 15;
           }
@@ -351,17 +374,17 @@ export default function NetworkPage() {
             ctx.restore();
             ctx.beginPath();
             ctx.arc(node.x, node.y, size, 0, Math.PI * 2);
-            ctx.strokeStyle = searchQuery && searchMatches ? '#fbbf24' : (isHovered ? '#a78bfa' : '#6366f1');
-            ctx.lineWidth = (isHovered || (searchQuery && searchMatches)) ? 3 : 1;
+            ctx.strokeStyle = searchQuery && searchMatches ? '#fbbf24' : (isHighlighted ? '#a78bfa' : '#6366f1');
+            ctx.lineWidth = (isHighlighted || (searchQuery && searchMatches)) ? 3 : 1;
             ctx.stroke();
           } else {
             ctx.beginPath();
             ctx.arc(node.x, node.y, size, 0, Math.PI * 2);
             ctx.fillStyle = '#a78bfa';
-            ctx.globalAlpha = dimmed ? (searchQuery ? 0.08 : 0.1) : (searchQuery && searchMatches ? 0.9 : (isHovered ? 0.85 : 0.6));
+            ctx.globalAlpha = dimmed ? (searchQuery ? 0.08 : 0.1) : (searchQuery && searchMatches ? 0.9 : (isHighlighted ? 0.85 : 0.6));
             ctx.fill();
-            ctx.strokeStyle = searchQuery && searchMatches ? '#fbbf24' : (isHovered ? '#a78bfa' : '#6366f1');
-            ctx.lineWidth = (isHovered || (searchQuery && searchMatches)) ? 3 : 1;
+            ctx.strokeStyle = searchQuery && searchMatches ? '#fbbf24' : (isHighlighted ? '#a78bfa' : '#6366f1');
+            ctx.lineWidth = (isHighlighted || (searchQuery && searchMatches)) ? 3 : 1;
             ctx.stroke();
           }
 
@@ -384,7 +407,7 @@ export default function NetworkPage() {
 
     animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
-  }, [nodeCount, edgeCount, searchQuery, matchesSearch, isFullscreen]);
+  }, [nodeCount, edgeCount, searchQuery, isFullscreen]);
 
   // Screen to world coords
   const screenToWorld = useCallback((sx: number, sy: number): Vec2 => {
@@ -465,6 +488,8 @@ export default function NetworkPage() {
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    scrollLockRef.current = true;
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setCamera(prev => ({ ...prev, zoom: Math.max(0.1, Math.min(5, prev.zoom * delta)) }));
   }, []);
@@ -482,19 +507,48 @@ export default function NetworkPage() {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const sx = touch.clientX - rect.left, sy = touch.clientY - rect.top;
-      dragRef.current = { nodeId: null, panStart: { x: touch.clientX, y: touch.clientY }, isPan: true };
+      const world = screenToWorld(sx, sy);
+      const node = findNodeAt(world.x, world.y);
+      if (node) {
+        // Select node for dragging on mobile
+        selectedRef.current = node;
+        setSelectedNode(node);
+        hoveredRef.current = node;
+        setHoveredNode(node);
+        dragRef.current = { nodeId: node.id, panStart: null, isPan: false };
+      } else {
+        // No node clicked, prepare for panning
+        selectedRef.current = null;
+        setSelectedNode(null);
+        dragRef.current = { nodeId: null, panStart: { x: touch.clientX, y: touch.clientY }, isPan: true };
+      }
     } else if (e.touches.length === 2) {
       dragRef.current = { nodeId: null, panStart: null, isPan: false };
       touchStartDistanceRef.current = getDistance(e.touches[0], e.touches[1]);
     }
-  }, []);
+  }, [screenToWorld, findNodeAt]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
     if (e.touches.length === 1) {
       const touch = e.touches[0];
       const drag = dragRef.current;
-      if (drag.isPan && drag.panStart) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const sx = touch.clientX - rect.left, sy = touch.clientY - rect.top;
+      
+      if (drag.nodeId && selectedRef.current) {
+        // Drag selected node
+        const world = screenToWorld(sx, sy);
+        const node = nodesRef.current.get(drag.nodeId);
+        if (node) {
+          node.x = world.x;
+          node.y = world.y;
+          node.vx = 0;
+          node.vy = 0;
+        }
+      } else if (drag.isPan && drag.panStart) {
+        // Pan canvas
         const dx = touch.clientX - drag.panStart.x;
         const dy = touch.clientY - drag.panStart.y;
         drag.panStart = { x: touch.clientX, y: touch.clientY };
@@ -508,15 +562,53 @@ export default function NetworkPage() {
         touchStartDistanceRef.current = currentDistance;
       }
     }
-  }, []);
+  }, [screenToWorld]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
-    dragRef.current = { nodeId: null, panStart: null, isPan: false };
-    touchStartDistanceRef.current = null;
+    if (e.touches.length === 0) {
+      dragRef.current = { nodeId: null, panStart: null, isPan: false };
+      touchStartDistanceRef.current = null;
+      // Selection persists to keep node highlighted - will deselect on click away
+    }
   }, []);
 
+  const handleCanvasClick = useCallback((e: React.MouseEvent) => {
+    // Click on empty canvas area deselects the node
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+    const world = screenToWorld(sx, sy);
+    const node = findNodeAt(world.x, world.y);
+    
+    if (!node && selectedRef.current) {
+      // Clicked on empty space, deselect
+      selectedRef.current = null;
+      setSelectedNode(null);
+    }
+  }, [screenToWorld, findNodeAt]);
+
   const resetView = useCallback(() => setCamera({ x: 0, y: 0, zoom: 1 }), []);
+
+  const handleZoomIn = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    scrollLockRef.current = true;
+    setCamera(p => ({ ...p, zoom: Math.min(5, p.zoom * 1.3) }));
+  }, []);
+
+  const handleZoomOut = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    scrollLockRef.current = true;
+    setCamera(p => ({ ...p, zoom: Math.max(0.1, p.zoom * 0.7) }));
+  }, []);
+
+  const handleResetView = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resetView();
+  }, [resetView]);
 
   const toggleFullscreen = useCallback(async () => {
     if (!containerRef.current) return;
@@ -533,9 +625,16 @@ export default function NetworkPage() {
         }
       }
     } catch (err) {
-      console.error('Fullscreen error:', err);
+      // Fullscreen API not supported or permission denied - silently fail
+      // User can still use graph, just not fullscreen
     }
   }, [isFullscreen]);
+
+  const handleToggleFullscreen = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleFullscreen();
+  }, [toggleFullscreen]);
 
   if (isLoading) {
     return (
@@ -571,19 +670,19 @@ export default function NetworkPage() {
           </p>
         </div>
         <div className="flex gap-1">
-          <button onClick={() => setCamera(p => ({ ...p, zoom: Math.min(5, p.zoom * 1.3) }))}
+          <button onClick={handleZoomIn}
             className="p-2 rounded-lg bg-surface-card border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-all h-8 w-8 flex items-center justify-center flex-shrink-0" title="Zoom In">
             <ZoomIn className="w-4 h-4" />
           </button>
-          <button onClick={() => setCamera(p => ({ ...p, zoom: Math.max(0.1, p.zoom * 0.7) }))}
+          <button onClick={handleZoomOut}
             className="p-2 rounded-lg bg-surface-card border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-all h-8 w-8 flex items-center justify-center flex-shrink-0" title="Zoom Out">
             <ZoomOut className="w-4 h-4" />
           </button>
-          <button onClick={resetView}
+          <button onClick={handleResetView}
             className="p-2 rounded-lg bg-surface-card border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-all h-8 w-8 flex items-center justify-center flex-shrink-0" title="Reset View">
             <Maximize2 className="w-4 h-4" />
           </button>
-          <button onClick={toggleFullscreen}
+          <button onClick={handleToggleFullscreen}
             className="p-2 rounded-lg bg-surface-card border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-all h-8 w-8 flex items-center justify-center flex-shrink-0" title="Fullscreen">
             <Maximize className="w-4 h-4" />
           </button>
@@ -648,7 +747,7 @@ export default function NetworkPage() {
           {/* Max Contributors to Show */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-[11px] sm:text-xs font-semibold text-foreground">Show Users</label>
+              <label className="text-[11px] sm:text-xs font-semibold text-foreground">Contributors</label>
               <span className="text-[11px] sm:text-xs text-muted-foreground font-mono">{maxContributorsShow}</span>
             </div>
             <input
@@ -673,11 +772,14 @@ export default function NetworkPage() {
           height: isFullscreen ? '100vh' : screenWidth < 640 ? 'calc(100vh - 120px)' : screenWidth < 768 ? 'calc(100vh - 180px)' : 'calc(100vh - 360px)',
           minHeight: '250px',
           cursor: dragRef.current.nodeId ? 'grabbing' : dragRef.current.isPan ? 'move' : 'default',
+          touchAction: 'none',
+          overscrollBehavior: 'contain',
         }}
       >
         <canvas
           ref={canvasRef}
           className="absolute inset-0 touch-none"
+          onClick={handleCanvasClick}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -726,6 +828,16 @@ export default function NetworkPage() {
                 </p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* No search results message */}
+        {searchQuery && Array.from(nodesRef.current.values()).every(n => !matchesSearch(n)) && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface-card/20 backdrop-blur-sm rounded-xl pointer-events-none">
+            <div className="text-center space-y-2">
+              <p className="text-sm font-medium text-muted-foreground">No results found for "{searchQuery}"</p>
+              <p className="text-xs text-muted-foreground/70">Try a different search term</p>
+            </div>
           </div>
         )}
 
